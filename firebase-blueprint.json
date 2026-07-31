@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "patients": {
+      "title": "Patients",
+      "description": "Registered patient profiles",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "dob": { "type": "string" },
+        "bloodGroup": { "type": "string" },
+        "emergencyContact": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "email"]
+    },
+    "appointments": {
+      "title": "Appointments",
+      "description": "Patient clinic appointments",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "service": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "doctorName": { "type": "string" },
+        "preferredDate": { "type": "string" },
+        "preferredTime": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" },
+        "cancellationMessage": { "type": "string" },
+        "patientPhone": { "type": "string" },
+        "smsSent": { "type": "boolean" },
+        "smsSentAt": { "type": "string" },
+        "smsError": { "type": "string" },
+        "notes": { "type": "string" },
+        "source": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["patientName", "phone", "service", "preferredDate", "preferredTime"]
+    },
+    "doctors": {
+      "title": "Doctors",
+      "description": "Medical doctors and specialists",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "specialty": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "bio": { "type": "string" },
+        "availableDays": { "type": "array", "items": { "type": "string" } },
+        "phone": { "type": "string" },
+        "roomNumber": { "type": "string" }
+      },
+      "required": ["name", "specialty"]
+    },
+    "services": {
+      "title": "Services",
+      "description": "Hospital medical services and departments",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "department": { "type": "string" }
+      },
+      "required": ["name", "description"]
+    },
+    "reviews": {
+      "title": "Reviews",
+      "description": "Patient testimonials and feedback",
+      "type": "object",
+      "properties": {
+        "patientName": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "approved": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["patientName", "rating", "comment"]
+    },
+    "reports": {
+      "title": "Medical Reports",
+      "description": "Patient laboratory and diagnostic report metadata",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "uploadedBy": { "type": "string" },
+        "uploadedAt": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["patientId", "fileName", "fileUrl"]
+    }
+  }
+}

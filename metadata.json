@@ -1,0 +1,6 @@
+{
+  "name": "Rafah-E-Aam Medical Centre",
+  "description": "Hospital and Medical Centre platform with patient portal, 24/7 appointment booking, emergency care, and admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
