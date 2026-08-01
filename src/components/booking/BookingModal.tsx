@@ -62,6 +62,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [signingIn, setSigningIn] = useState(false);
 
+  const phoneFormatRegex = /^03\d{2}-\d{7}$/;
+  const isPhoneValid = phoneFormatRegex.test(phone.trim());
+
   // Prefill when opened
   useEffect(() => {
     if (isOpen) {
@@ -175,6 +178,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
     if (!name || !phone || !preferredDate || (!service && !doctorId)) {
       setErrorMsg('Please fill in all required fields (Name, Phone, Date, and Service/Doctor).');
+      return;
+    }
+
+    if (!isPhoneValid) {
+      setErrorMsg('Put the correct phone number in 03XX-XXXXXXX format.');
       return;
     }
 
@@ -444,11 +452,19 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                       type="tel"
                       required
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+92 300 1234567"
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        if (errorMsg && errorMsg.includes('phone number')) {
+                          setErrorMsg('');
+                        }
+                      }}
+                      placeholder="03XX-XXXXXXX"
                       className="w-full bg-white border border-emerald-900/20 rounded-xl pl-10 pr-3.5 py-2.5 sm:py-3 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
                     />
                   </div>
+                  <p className={`mt-2 text-xs ${isPhoneValid ? 'text-emerald-900' : 'text-red-700'}`}>
+                    Enter your mobile number in 03XX-XXXXXXX format.
+                  </p>
                 </div>
               </div>
 
@@ -606,7 +622,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               {/* Submit CTA - Disabled when not logged in or checkbox unchecked */}
               <button
                 type="submit"
-                disabled={submitting || !user || !confirmedDetails}
+                disabled={submitting || !user || !confirmedDetails || !isPhoneValid}
                 className="w-full bg-[#D64545] hover:bg-[#c23737] text-white py-3 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
               >
                 {submitting ? (
@@ -615,6 +631,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   <span>Log In Required to Submit</span>
                 ) : !confirmedDetails ? (
                   <span>Please Confirm Checkbox Above</span>
+                ) : !isPhoneValid ? (
+                  <span>Put the correct phone number</span>
                 ) : (
                   <>
                     <Calendar className="w-4 h-4" />

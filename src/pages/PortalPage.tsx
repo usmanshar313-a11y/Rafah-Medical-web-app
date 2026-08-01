@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  User, 
-  Calendar, 
-  Settings, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  Phone, 
-  Heart, 
-  Plus, 
+  User,
+  Calendar,
+  Settings,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Phone,
+  Heart,
+  Plus,
   Bell,
   LogOut,
   ExternalLink,
   ShieldCheck,
   Mail,
   Lock,
+  Eye,
+  EyeOff,
   UserPlus,
   LogIn
 } from 'lucide-react';
@@ -30,11 +32,10 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { signOut } from 'firebase/auth';
+import { signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Appointment, AppointmentStatus } from '../types';
-import { ConfirmModal } from '../components/common/ConfirmModal';
 import { Toast, ToastMessage } from '../components/common/Toast';
 
 export const PortalPage: React.FC = () => {
@@ -65,6 +66,16 @@ export const PortalPage: React.FC = () => {
   const [signupError, setSignupError] = useState('');
   const [signupAlreadyExists, setSignupAlreadyExists] = useState(false);
   const [signupSubmitting, setSignupSubmitting] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
+
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetSentModalOpen, setResetSentModalOpen] = useState(false);
+  const [resetSentEmail, setResetSentEmail] = useState('');
 
   // Profile Edit Form State
   const [profileName, setProfileName] = useState('');
@@ -103,6 +114,12 @@ export const PortalPage: React.FC = () => {
   useEffect(() => {
     if (user) {
       fetchPatientData();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      setResetSentModalOpen(false);
     }
   }, [user]);
 
@@ -148,6 +165,8 @@ export const PortalPage: React.FC = () => {
     setLoginSubmitting(true);
     try {
         await signInWithEmail(cleanEmail, loginPassword);
+        setResetSentModalOpen(false);
+        setResetMessage('');
     } catch (err: any) {
         console.error('LOGIN ERROR CODE:', err?.code, 'MESSAGE:', err?.message, 'RAW:', err);
         try {
@@ -166,12 +185,14 @@ export const PortalPage: React.FC = () => {
       } else if (code === 'auth/invalid-credential' || msg.includes('auth/invalid-credential')) {
         try {
           const lowerEmail = cleanEmail.toLowerCase();
-          const [snap1, snap2] = await Promise.all([
+          const [snap1, snap2, snapAppt1, snapAppt2] = await Promise.all([
             getDocs(query(collection(db, 'patients'), where('email', '==', cleanEmail))),
-            getDocs(query(collection(db, 'patients'), where('email', '==', lowerEmail)))
+            getDocs(query(collection(db, 'patients'), where('email', '==', lowerEmail))),
+            getDocs(query(collection(db, 'appointments'), where('email', '==', cleanEmail))),
+            getDocs(query(collection(db, 'appointments'), where('email', '==', lowerEmail)))
           ]);
 
-          if (!snap1.empty || !snap2.empty) {
+          if (!snap1.empty || !snap2.empty || !snapAppt1.empty || !snapAppt2.empty) {
             setLoginError('Incorrect password. Please try again.');
           } else {
             setLoginNoAccount(true);
@@ -187,6 +208,39 @@ export const PortalPage: React.FC = () => {
       }
     } finally {
       setLoginSubmitting(false);
+    }
+  };
+
+  const handlePasswordResetSubmit = async () => {
+    if (resetSubmitting) return;
+    setResetMessage('');
+    setLoginError('');
+
+    const cleanEmail = resetEmail.trim();
+    if (!cleanEmail) {
+      setLoginError('Please enter your email address to reset your password.');
+      return;
+    }
+
+    setResetSubmitting(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      const message = 'If an account exists with this email, a password reset link was sent. Please check your inbox and spam folders.';
+      setResetMessage(message);
+      setResetSentEmail(cleanEmail);
+      setResetSentModalOpen(true);
+      setShowResetPassword(false);
+      setResetEmail('');
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      const message = 'If an account exists with this email, a password reset link was sent. Please check your inbox and spam folders.';
+      setResetMessage(message);
+      setResetSentEmail(cleanEmail);
+      setResetSentModalOpen(true);
+      setShowResetPassword(false);
+      setResetEmail('');
+    } finally {
+      setResetSubmitting(false);
     }
   };
 
@@ -518,13 +572,24 @@ export const PortalPage: React.FC = () => {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
                   <input
-                    type="password"
+                    type={showLoginPassword ? 'text' : 'password'}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="Enter your Secret Portal Key"
                     required
-                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    className="w-full pl-9 pr-11 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((prev) => !prev)}
+                    className="absolute right-3 top-3 text-emerald-700 hover:text-emerald-900"
+                  >
+                    {showLoginPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -537,7 +602,14 @@ export const PortalPage: React.FC = () => {
                 <span>{loginSubmitting ? 'Verifying Key...' : 'Log In to Patient Portal'}</span>
               </button>
 
-              <div className="text-center pt-2">
+              <div className="flex flex-col items-center gap-3 text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword(true)}
+                  className="text-xs text-[#0B6B4E] font-bold hover:underline cursor-pointer"
+                >
+                  Forgot Password?
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -553,6 +625,47 @@ export const PortalPage: React.FC = () => {
                   Don't have an account? Sign Up
                 </button>
               </div>
+
+              {showResetPassword && (
+                <div className="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-[#0B6B4E]">
+                  <h4 className="text-sm font-bold">Reset Password</h4>
+                  <p className="text-xs text-emerald-900/80 mt-1 mb-3">
+                    Enter the email address used for your patient account.
+                  </p>
+                  {resetMessage ? (
+                    <div className="p-3 bg-emerald-100 text-emerald-900 text-xs rounded-xl mb-3">
+                      {resetMessage}
+                    </div>
+                  ) : null}
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-emerald-700 absolute left-3 top-3" />
+                    <input
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      placeholder="Enter your email"
+                      className="w-full pl-9 pr-3 py-2.5 bg-white border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetPassword(false)}
+                      className="flex-1 bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl py-2 text-xs font-bold hover:bg-emerald-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePasswordResetSubmit}
+                      disabled={resetSubmitting}
+                      className="flex-1 bg-[#0B6B4E] text-white rounded-xl py-2 text-xs font-bold hover:bg-[#08523c] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {resetSubmitting ? 'Sending...' : 'Send Reset Link'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </form>
           )}
 
@@ -627,13 +740,24 @@ export const PortalPage: React.FC = () => {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
                   <input
-                    type="password"
+                    type={showSignupPassword ? 'text' : 'password'}
                     value={signupPassword}
                     onChange={(e) => setSignupPassword(e.target.value)}
                     placeholder="Create your Secret Portal Key"
                     required
-                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    className="w-full pl-9 pr-11 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword((prev) => !prev)}
+                    className="absolute right-3 top-3 text-emerald-700 hover:text-emerald-900"
+                  >
+                    {showSignupPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
                 {/* Password strength checklist */}
                 <div className="mt-2 text-xs text-emerald-900/90">
@@ -684,13 +808,24 @@ export const PortalPage: React.FC = () => {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
                   <input
-                    type="password"
+                    type={showSignupConfirmPassword ? 'text' : 'password'}
                     value={signupConfirmPassword}
                     onChange={(e) => setSignupConfirmPassword(e.target.value)}
                     placeholder="Re-enter your Secret Portal Key"
                     required
-                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    className="w-full pl-9 pr-11 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupConfirmPassword((prev) => !prev)}
+                    className="absolute right-3 top-3 text-emerald-700 hover:text-emerald-900"
+                  >
+                    {showSignupConfirmPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -738,6 +873,47 @@ export const PortalPage: React.FC = () => {
             </form>
           )}
         </div>
+
+        {resetSentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-emerald-900/10 overflow-hidden">
+              <div className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-3xl bg-emerald-100 p-3 text-emerald-700">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-[#0B6B4E]">Reset Link Sent</h3>
+                    <p className="mt-2 text-sm text-emerald-900/80">
+                      If an account exists for <span className="font-semibold">{resetSentEmail || 'this email'}</span>, a password reset link was sent.
+                      Please check your inbox and spam folders.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-3xl bg-[#F7FBEF] border border-emerald-200 p-4 text-sm text-emerald-900">
+                  <p className="font-semibold">Important:</p>
+                  <p className="mt-2">
+                    The reset email may appear in Gmail <span className="font-semibold">Spam</span> or <span className="font-semibold">Promotions</span>, and the sender may show as <span className="font-semibold">"noreply"</span>.
+                  </p>
+                  <p className="mt-2">
+                    If you don't see it shortly, please search for <span className="font-semibold">noreply</span> or check your spam folder.
+                  </p>
+                </div>
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setResetSentModalOpen(false)}
+                    className="inline-flex items-center justify-center rounded-2xl bg-[#0B6B4E] px-5 py-3 text-sm font-semibold text-white hover:bg-[#08523c] transition-colors"
+                  >
+                    Got it
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -913,17 +1089,9 @@ export const PortalPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-end pt-3 border-t border-emerald-900/10 gap-2">
-                        {!isAppointmentCancelled(appt.status) && (
-                          <button
-                            onClick={() => handleCancelAppointment(appt.id)}
-                            className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
-                          >
-                            Cancel Appointment
-                          </button>
-                        )}
+                      <div className="flex items-center justify-end pt-3 border-t border-emerald-900/10">
                         <button
-                         
+                          onClick={() => handleDeleteAppointment(appt.id)}
                           className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
                         >
                           Delete Appointment
@@ -1029,14 +1197,44 @@ export const PortalPage: React.FC = () => {
 
       </div>
 
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        onConfirm={confirmModal.onConfirm}
-        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
-        isLoading={confirmModal.isLoading}
-      />
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-emerald-900/10 overflow-hidden">
+            <div className="p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-[#0B6B4E]">{confirmModal.title}</h3>
+                  <p className="mt-2 text-sm text-emerald-900/80">{confirmModal.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="text-emerald-900 hover:text-emerald-700 font-semibold"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 border-t border-emerald-900/10 p-4 sm:p-5">
+              <button
+                type="button"
+                onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+                className="w-full sm:w-auto flex-1 rounded-xl border border-emerald-900/20 bg-emerald-50 text-emerald-900 py-3 text-sm font-semibold hover:bg-emerald-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal.onConfirm}
+                disabled={confirmModal.isLoading}
+                className="w-full sm:w-auto flex-1 rounded-xl bg-red-600 text-white py-3 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                {confirmModal.isLoading ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast toast={toast} onClose={() => setToast(null)} />
 
