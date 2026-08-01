@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   User, 
   Calendar, 
@@ -25,17 +26,19 @@ import {
   where, 
   getDocs, 
   doc, 
-  updateDoc
+  updateDoc, 
+  deleteDoc
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Appointment, AppointmentStatus } from '../types';
-import { BookingModal } from '../components/booking/BookingModal';
 import { ConfirmModal } from '../components/common/ConfirmModal';
 import { Toast, ToastMessage } from '../components/common/Toast';
 
 export const PortalPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user, patientProfile, loading, signUpWithEmail, signInWithEmail, updatePatientProfile, logout } = useAuth();
   const { t } = useLanguage();
 
@@ -50,6 +53,7 @@ export const PortalPage: React.FC = () => {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [loginNoAccount, setLoginNoAccount] = useState(false);
   const [loginSubmitting, setLoginSubmitting] = useState(false);
 
   // Signup State
@@ -59,8 +63,8 @@ export const PortalPage: React.FC = () => {
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [signupConfirmEmailChecked, setSignupConfirmEmailChecked] = useState(false);
   const [signupError, setSignupError] = useState('');
+  const [signupAlreadyExists, setSignupAlreadyExists] = useState(false);
   const [signupSubmitting, setSignupSubmitting] = useState(false);
-  const [duplicateEmailMsg, setDuplicateEmailMsg] = useState(false);
 
   // Profile Edit Form State
   const [profileName, setProfileName] = useState('');
@@ -70,9 +74,6 @@ export const PortalPage: React.FC = () => {
   const [profileEmergencyContact, setProfileEmergencyContact] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState('');
-
-  // Embedded booking modal
-  const [bookingModalOpen, setBookingModalOpen] = useState(false);
 
   // Toast & Confirm Modal state
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -130,8 +131,12 @@ export const PortalPage: React.FC = () => {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loginSubmitting) return;
     setLoginError('');
-    if (!loginEmail.trim()) {
+    setLoginNoAccount(false);
+
+    const cleanEmail = loginEmail.trim();
+    if (!cleanEmail) {
       setLoginError('Please enter your email address.');
       return;
     }
@@ -142,28 +147,41 @@ export const PortalPage: React.FC = () => {
 
     setLoginSubmitting(true);
     try {
-      await signInWithEmail(loginEmail, loginPassword);
+        await signInWithEmail(cleanEmail, loginPassword);
     } catch (err: any) {
+        console.error('LOGIN ERROR CODE:', err?.code, 'MESSAGE:', err?.message, 'RAW:', err);
+        try {
+          await signOut(auth);
+        } catch (e) {
+          // ignore signOut errors
+        }
       const code = err?.code || '';
       const msg = err?.message || '';
+
       if (code === 'auth/user-not-found') {
-        setLoginError('No account found with this email — please sign up');
+        setLoginNoAccount(true);
+        setLoginError('No account found with this email. Please sign up first.');
       } else if (code === 'auth/wrong-password') {
-        setLoginError('Incorrect password');
+        setLoginError('Incorrect password. Please try again.');
       } else if (code === 'auth/invalid-credential' || msg.includes('auth/invalid-credential')) {
         try {
-          const q = query(collection(db, 'patients'), where('email', '==', loginEmail.trim()));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            setLoginError('Incorrect password');
+          const lowerEmail = cleanEmail.toLowerCase();
+          const [snap1, snap2] = await Promise.all([
+            getDocs(query(collection(db, 'patients'), where('email', '==', cleanEmail))),
+            getDocs(query(collection(db, 'patients'), where('email', '==', lowerEmail)))
+          ]);
+
+          if (!snap1.empty || !snap2.empty) {
+            setLoginError('Incorrect password. Please try again.');
           } else {
-            setLoginError('No account found with this email — please sign up');
+            setLoginNoAccount(true);
+            setLoginError('No account found with this email. Please sign up first.');
           }
-        } catch (dbErr) {
-          setLoginError('Incorrect password');
+        } catch {
+          setLoginError('Incorrect password or credentials.');
         }
       } else if (code === 'auth/invalid-email') {
-        setLoginError('No account found with this email — please sign up');
+        setLoginError('Please enter a valid email address.');
       } else {
         setLoginError(err?.message || 'Failed to log in. Please check your credentials.');
       }
@@ -174,14 +192,16 @@ export const PortalPage: React.FC = () => {
 
   const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (signupSubmitting) return;
     setSignupError('');
-    setDuplicateEmailMsg(false);
+    setSignupAlreadyExists(false);
 
+    const cleanEmail = signupEmail.trim();
     if (!signupName.trim()) {
       setSignupError('Please enter your full name.');
       return;
     }
-    if (!signupEmail.trim()) {
+    if (!cleanEmail) {
       setSignupError('Please enter your email address.');
       return;
     }
@@ -190,7 +210,7 @@ export const PortalPage: React.FC = () => {
       return;
     }
     if (signupPassword !== signupConfirmPassword) {
-      setSignupError('Passwords do not match');
+      setSignupError('Passwords do not match.');
       return;
     }
     if (!signupConfirmEmailChecked) {
@@ -200,15 +220,28 @@ export const PortalPage: React.FC = () => {
 
     setSignupSubmitting(true);
     try {
-      await signUpWithEmail(signupEmail, signupPassword, signupName);
+        // Ensure there is no lingering auth session before creating a new user
+        try {
+          await signOut(auth);
+        } catch (e) {
+          // ignore signOut errors
+        }
+
+        await signUpWithEmail(cleanEmail, signupPassword, signupName);
     } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/email-already-in-use' || err?.message?.includes('email-already-in-use')) {
-        setDuplicateEmailMsg(true);
-        setSignupError('This email is already registered. Please log in instead.');
-      } else {
-        setSignupError(err?.message || 'Failed to create account. Please try again.');
-      }
+        console.error('SIGNUP ERROR CODE:', err?.code, 'MESSAGE:', err?.message, 'RAW:', err);
+        const code = err?.code || '';
+        const msg = err?.message || '';
+        if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
+          setSignupAlreadyExists(true);
+          setSignupError('This email is already registered. Please log in instead.');
+        } else if (code === 'auth/weak-password') {
+          setSignupError('Password is too weak.');
+        } else if (code === 'auth/invalid-email') {
+          setSignupError('Please enter a valid email address.');
+        } else {
+          setSignupError(err?.message || 'Failed to create account. Please try again.');
+        }
     } finally {
       setSignupSubmitting(false);
     }
@@ -220,13 +253,14 @@ export const PortalPage: React.FC = () => {
     setLoginEmail('');
     setLoginPassword('');
     setLoginError('');
+    setLoginNoAccount(false);
     setSignupName('');
     setSignupEmail('');
     setSignupPassword('');
     setSignupConfirmPassword('');
     setSignupConfirmEmailChecked(false);
     setSignupError('');
-    setDuplicateEmailMsg(false);
+    setSignupAlreadyExists(false);
     setAuthMode('login');
   };
 
@@ -250,6 +284,27 @@ export const PortalPage: React.FC = () => {
             message: 'Failed to cancel appointment. Please check your network connection or try again.',
             type: 'error',
           });
+        } finally {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+        }
+      },
+    });
+  };
+
+  const handleDeleteAppointment = (apptId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Appointment',
+      message: 'Are you sure you want to delete this completed appointment?',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isLoading: true }));
+        try {
+          await deleteDoc(doc(db, 'appointments', apptId));
+          setAppointments((prev) => prev.filter((a) => a.id !== apptId));
+          setToast({ message: 'Appointment deleted successfully.', type: 'success' });
+        } catch (err) {
+          console.error('Failed to delete appointment:', err);
+          setToast({ message: 'Failed to delete appointment. Please try again.', type: 'error' });
         } finally {
           setConfirmModal((prev) => ({ ...prev, isOpen: false, isLoading: false }));
         }
@@ -294,8 +349,11 @@ export const PortalPage: React.FC = () => {
     return 'Past date';
   };
 
+  const normalizeAppointmentStatus = (status: AppointmentStatus) => String(status || '').trim().toLowerCase();
+
   const getStatusBadge = (status: AppointmentStatus) => {
-    switch (status) {
+    const normalizedStatus = normalizeAppointmentStatus(status);
+    switch (normalizedStatus) {
       case 'confirmed':
         return (
           <span className="inline-flex items-center gap-1 bg-emerald-100 text-[#0B6B4E] px-2.5 py-0.5 rounded-full text-xs font-bold border border-emerald-300">
@@ -303,12 +361,14 @@ export const PortalPage: React.FC = () => {
           </span>
         );
       case 'completed':
+      case 'done':
         return (
           <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
             <CheckCircle2 className="w-3.5 h-3.5" /> Completed
           </span>
         );
       case 'cancelled':
+      case 'canceled':
         return (
           <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full text-xs font-bold">
             <XCircle className="w-3.5 h-3.5" /> Cancelled
@@ -322,6 +382,28 @@ export const PortalPage: React.FC = () => {
         );
     }
   };
+
+  const isAppointmentCompleted = (status: AppointmentStatus) => {
+    const normalizedStatus = normalizeAppointmentStatus(status);
+    return [
+      'completed',
+      'done',
+      'finished',
+      'complete',
+    ].some((value) => normalizedStatus === value || normalizedStatus.includes(value));
+  };
+
+  const isAppointmentCancelled = (status: AppointmentStatus) => {
+    const normalizedStatus = normalizeAppointmentStatus(status);
+    return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+  };
+
+  // Password strength checks for Sign Up: length, number, uppercase, symbol
+  const hasLength = signupPassword.length >= 8;
+  const hasNumber = /\d/.test(signupPassword);
+  const hasUpper = /[A-Z]/.test(signupPassword);
+  const hasSymbol = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(signupPassword);
+  const isPasswordStrong = hasLength && hasNumber && hasUpper && hasSymbol;
 
   if (loading) {
     return (
@@ -358,9 +440,12 @@ export const PortalPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
+                if (signupEmail && !loginEmail) setLoginEmail(signupEmail.trim());
                 setAuthMode('login');
                 setLoginError('');
+                setLoginNoAccount(false);
                 setSignupError('');
+                setSignupAlreadyExists(false);
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
                 authMode === 'login' ? 'bg-[#0B6B4E] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-900/10'
@@ -371,9 +456,12 @@ export const PortalPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
+                if (loginEmail && !signupEmail) setSignupEmail(loginEmail.trim());
                 setAuthMode('signup');
                 setLoginError('');
+                setLoginNoAccount(false);
                 setSignupError('');
+                setSignupAlreadyExists(false);
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
                 authMode === 'signup' ? 'bg-[#0B6B4E] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-900/10'
@@ -387,9 +475,32 @@ export const PortalPage: React.FC = () => {
           {authMode === 'login' && (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               {loginError && (
-                <div className="bg-red-50 border border-red-300 p-3 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-                  <span>{loginError}</span>
+                <div className="bg-red-50 border border-red-300 p-3.5 rounded-xl text-xs text-red-800 font-medium space-y-2.5">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{loginError}</span>
+                  </div>
+                  {loginNoAccount && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignupEmail(loginEmail.trim());
+                        setSignupName('');
+                        setSignupPassword('');
+                        setSignupConfirmPassword('');
+                        setSignupConfirmEmailChecked(false);
+                        setSignupError('');
+                        setSignupAlreadyExists(false);
+                        setLoginError('');
+                        setLoginNoAccount(false);
+                        setAuthMode('signup');
+                      }}
+                      className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-2 px-3 rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-xs mt-1"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>Go to Sign Up (Email Pre-filled)</span>
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -440,9 +551,12 @@ export const PortalPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthMode('signup');
+                    if (loginEmail && !signupEmail) setSignupEmail(loginEmail.trim());
                     setLoginError('');
+                    setLoginNoAccount(false);
                     setSignupError('');
+                    setSignupAlreadyExists(false);
+                    setAuthMode('signup');
                   }}
                   className="text-xs text-[#0B6B4E] font-bold hover:underline cursor-pointer"
                 >
@@ -456,23 +570,27 @@ export const PortalPage: React.FC = () => {
           {authMode === 'signup' && (
             <form onSubmit={handleSignupSubmit} className="space-y-4">
               {signupError && (
-                <div className="bg-red-50 border border-red-300 p-3 rounded-xl text-xs text-red-700 font-medium space-y-2">
-                  <div className="flex items-center gap-2">
+                <div className="bg-red-50 border border-red-300 p-3.5 rounded-xl text-xs text-red-800 font-medium space-y-2.5">
+                  <div className="flex items-center gap-2 font-semibold">
                     <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
                     <span>{signupError}</span>
                   </div>
-                  {duplicateEmailMsg && (
+                  {signupAlreadyExists && (
                     <button
                       type="button"
                       onClick={() => {
-                        setLoginEmail(signupEmail);
-                        setAuthMode('login');
+                        setLoginEmail(signupEmail.trim());
+                        setLoginPassword('');
                         setLoginError('');
+                        setLoginNoAccount(false);
                         setSignupError('');
+                        setSignupAlreadyExists(false);
+                        setAuthMode('login');
                       }}
-                      className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold py-1.5 px-3 rounded-lg shadow-xs transition-colors cursor-pointer mt-1"
+                      className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-2 px-3 rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-xs mt-1"
                     >
-                      Log In as {signupEmail}
+                      <LogIn className="w-4 h-4" />
+                      <span>Go to Login (Email Pre-filled)</span>
                     </button>
                   )}
                 </div>
@@ -527,6 +645,46 @@ export const PortalPage: React.FC = () => {
                     className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
                   />
                 </div>
+                {/* Password strength checklist */}
+                <div className="mt-2 text-xs text-emerald-900/90">
+                  <div className="flex flex-col gap-1 pl-1">
+                    <div className="flex items-center gap-2">
+                      {hasLength ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span className={hasLength ? 'text-emerald-900 font-semibold' : 'text-emerald-700'}>At least 8 characters</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {hasNumber ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span className={hasNumber ? 'text-emerald-900 font-semibold' : 'text-emerald-700'}>Includes a number</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {hasUpper ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span className={hasUpper ? 'text-emerald-900 font-semibold' : 'text-emerald-700'}>Includes an uppercase letter</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {hasSymbol ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span className={hasSymbol ? 'text-emerald-900 font-semibold' : 'text-emerald-700'}>Includes a symbol (e.g. !@#$%)</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -563,8 +721,9 @@ export const PortalPage: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={signupSubmitting}
+                disabled={signupSubmitting || !isPasswordStrong}
                 className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-3 px-4 rounded-xl shadow transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 text-xs sm:text-sm mt-2"
+                title={!isPasswordStrong ? 'Password must be 8+ chars and include number, uppercase and symbol' : undefined}
               >
                 <UserPlus className="w-4 h-4" />
                 <span>{signupSubmitting ? 'Creating Account...' : 'Create Account & Sign In'}</span>
@@ -574,9 +733,12 @@ export const PortalPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthMode('login');
+                    if (signupEmail && !loginEmail) setLoginEmail(signupEmail.trim());
                     setLoginError('');
+                    setLoginNoAccount(false);
                     setSignupError('');
+                    setSignupAlreadyExists(false);
+                    setAuthMode('login');
                   }}
                   className="text-xs text-[#0B6B4E] font-bold hover:underline cursor-pointer"
                 >
@@ -641,7 +803,7 @@ export const PortalPage: React.FC = () => {
             </div>
             <button
               onClick={() => setActiveTab('appointments')}
-              className="bg-white text-[#0B6B4E] font-bold text-xs px-3 py-1.5 rounded-lg shrink-0 shadow-xs"
+              className="bg-white text-[#0B6B4E] font-bold text-xs px-3 py-1.5 rounded-lg shrink-0 shadow-xs cursor-pointer"
             >
               View Details
             </button>
@@ -678,9 +840,21 @@ export const PortalPage: React.FC = () => {
         {/* Tab 1: My Appointments */}
         {activeTab === 'appointments' && (
           <div className="space-y-4">
-            <h2 className="font-heading font-bold text-xl text-[#0B6B4E]">
-              Scheduled Appointments
-            </h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="font-heading font-bold text-xl text-[#0B6B4E]">
+                Scheduled Appointments
+              </h2>
+              <button
+                onClick={() => {
+                  navigate('/doctors');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="bg-[#D64545] hover:bg-[#c23737] text-white font-bold px-4 py-2 rounded-xl text-xs shadow transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Book New Appointment</span>
+              </button>
+            </div>
 
             {loadingData ? (
               <div className="bg-white p-8 rounded-2xl text-center text-sm font-medium">
@@ -691,11 +865,14 @@ export const PortalPage: React.FC = () => {
                 <Calendar className="w-12 h-12 text-emerald-700/40 mx-auto" />
                 <h3 className="font-bold text-base text-[#0B6B4E]">No appointments found</h3>
                 <p className="text-xs text-emerald-900/70 max-w-sm mx-auto">
-                  You haven't requested any medical appointments yet. Click below to book a visit with our specialist doctors.
+                  You haven't requested any medical appointments yet. Click below to browse departments, select your specialist, and schedule a visit.
                 </p>
                 <button
-                  onClick={() => setBookingModalOpen(true)}
-                  className="bg-[#D64545] text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow"
+                  onClick={() => {
+                    navigate('/doctors');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-[#D64545] hover:bg-[#c23737] text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow transition-colors cursor-pointer"
                 >
                   Book Your First Appointment
                 </button>
@@ -747,12 +924,20 @@ export const PortalPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-end pt-3 border-t border-emerald-900/10 gap-2">
-                        {appt.status !== 'cancelled' && appt.status !== 'completed' && (
+                        {!isAppointmentCancelled(appt.status) && !isAppointmentCompleted(appt.status) && (
                           <button
                             onClick={() => handleCancelAppointment(appt.id)}
                             className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
                           >
                             Cancel Appointment
+                          </button>
+                        )}
+                        {isAppointmentCompleted(appt.status) && (
+                          <button
+                            onClick={() => handleDeleteAppointment(appt.id)}
+                            className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
+                          >
+                            Delete Appointment
                           </button>
                         )}
                       </div>
@@ -856,15 +1041,6 @@ export const PortalPage: React.FC = () => {
 
       </div>
 
-      {/* Booking Modal */}
-      <BookingModal
-        isOpen={bookingModalOpen}
-        onClose={() => {
-          setBookingModalOpen(false);
-          fetchPatientData();
-        }}
-      />
-
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
@@ -879,3 +1055,4 @@ export const PortalPage: React.FC = () => {
     </div>
   );
 };
+
