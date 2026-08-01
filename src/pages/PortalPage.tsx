@@ -12,7 +12,12 @@ import {
   Plus, 
   Bell,
   LogOut,
-  ExternalLink
+  ExternalLink,
+  ShieldCheck,
+  Mail,
+  Lock,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 import { 
   collection, 
@@ -22,7 +27,7 @@ import {
   doc, 
   updateDoc
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Appointment, AppointmentStatus } from '../types';
@@ -31,12 +36,31 @@ import { ConfirmModal } from '../components/common/ConfirmModal';
 import { Toast, ToastMessage } from '../components/common/Toast';
 
 export const PortalPage: React.FC = () => {
-  const { user, patientProfile, loading, signInWithGoogle, updatePatientProfile, logout } = useAuth();
+  const { user, patientProfile, loading, signUpWithEmail, signInWithEmail, updatePatientProfile, logout } = useAuth();
   const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'profile'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+
+  // Auth Toggle & Form States
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+
+  // Login State
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+
+  // Signup State
+  const [signupName, setSignupName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
+  const [signupConfirmEmailChecked, setSignupConfirmEmailChecked] = useState(false);
+  const [signupError, setSignupError] = useState('');
+  const [signupSubmitting, setSignupSubmitting] = useState(false);
+  const [duplicateEmailMsg, setDuplicateEmailMsg] = useState(false);
 
   // Profile Edit Form State
   const [profileName, setProfileName] = useState('');
@@ -82,30 +106,18 @@ export const PortalPage: React.FC = () => {
   }, [user]);
 
   const fetchPatientData = async () => {
-    if (!user) return;
+    const currentUid = auth.currentUser?.uid || user?.uid;
+    if (!currentUid) return;
     setLoadingData(true);
     try {
-      // Fetch Appointments by patientId & email
-      const apptQ = query(collection(db, 'appointments'), where('patientId', '==', user.uid));
+      // Fetch Appointments strictly by patientId (auth.currentUser.uid)
+      const apptQ = query(collection(db, 'appointments'), where('patientId', '==', currentUid));
       const apptSnap = await getDocs(apptQ);
       const fetchedAppts: Appointment[] = [];
-      const seenApptIds = new Set<string>();
 
       apptSnap.forEach((d) => {
-        seenApptIds.add(d.id);
         fetchedAppts.push({ id: d.id, ...d.data() } as Appointment);
       });
-
-      if (user.email) {
-        const apptQ2 = query(collection(db, 'appointments'), where('email', '==', user.email));
-        const apptSnap2 = await getDocs(apptQ2);
-        apptSnap2.forEach((d) => {
-          if (!seenApptIds.has(d.id)) {
-            seenApptIds.add(d.id);
-            fetchedAppts.push({ id: d.id, ...d.data() } as Appointment);
-          }
-        });
-      }
 
       fetchedAppts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setAppointments(fetchedAppts);
@@ -114,6 +126,108 @@ export const PortalPage: React.FC = () => {
     } finally {
       setLoadingData(false);
     }
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!loginEmail.trim()) {
+      setLoginError('Please enter your email address.');
+      return;
+    }
+    if (!loginPassword) {
+      setLoginError('Please enter your Secret Portal Key.');
+      return;
+    }
+
+    setLoginSubmitting(true);
+    try {
+      await signInWithEmail(loginEmail, loginPassword);
+    } catch (err: any) {
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      if (code === 'auth/user-not-found') {
+        setLoginError('No account found with this email — please sign up');
+      } else if (code === 'auth/wrong-password') {
+        setLoginError('Incorrect password');
+      } else if (code === 'auth/invalid-credential' || msg.includes('auth/invalid-credential')) {
+        try {
+          const q = query(collection(db, 'patients'), where('email', '==', loginEmail.trim()));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            setLoginError('Incorrect password');
+          } else {
+            setLoginError('No account found with this email — please sign up');
+          }
+        } catch (dbErr) {
+          setLoginError('Incorrect password');
+        }
+      } else if (code === 'auth/invalid-email') {
+        setLoginError('No account found with this email — please sign up');
+      } else {
+        setLoginError(err?.message || 'Failed to log in. Please check your credentials.');
+      }
+    } finally {
+      setLoginSubmitting(false);
+    }
+  };
+
+  const handleSignupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSignupError('');
+    setDuplicateEmailMsg(false);
+
+    if (!signupName.trim()) {
+      setSignupError('Please enter your full name.');
+      return;
+    }
+    if (!signupEmail.trim()) {
+      setSignupError('Please enter your email address.');
+      return;
+    }
+    if (!signupPassword) {
+      setSignupError('Please enter your Secret Portal Key.');
+      return;
+    }
+    if (signupPassword !== signupConfirmPassword) {
+      setSignupError('Passwords do not match');
+      return;
+    }
+    if (!signupConfirmEmailChecked) {
+      setSignupError('Please confirm that your email address is correct.');
+      return;
+    }
+
+    setSignupSubmitting(true);
+    try {
+      await signUpWithEmail(signupEmail, signupPassword, signupName);
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/email-already-in-use' || err?.message?.includes('email-already-in-use')) {
+        setDuplicateEmailMsg(true);
+        setSignupError('This email is already registered. Please log in instead.');
+      } else {
+        setSignupError(err?.message || 'Failed to create account. Please try again.');
+      }
+    } finally {
+      setSignupSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setAppointments([]);
+    setLoginEmail('');
+    setLoginPassword('');
+    setLoginError('');
+    setSignupName('');
+    setSignupEmail('');
+    setSignupPassword('');
+    setSignupConfirmPassword('');
+    setSignupConfirmEmailChecked(false);
+    setSignupError('');
+    setDuplicateEmailMsg(false);
+    setAuthMode('login');
   };
 
   const handleCancelAppointment = (apptId: string) => {
@@ -220,30 +334,257 @@ export const PortalPage: React.FC = () => {
     );
   }
 
+  // Render Login / Sign Up UI if not authenticated
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#F5F1E8] py-16 px-4 flex items-center justify-center text-[#0B6B4E]">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-emerald-900/10 text-center space-y-6">
-          <div className="w-16 h-16 bg-[#0B6B4E] text-white rounded-full flex items-center justify-center mx-auto shadow">
-            <User className="w-8 h-8" />
-          </div>
-
-          <div>
+      <div className="min-h-screen bg-[#F5F1E8] py-12 px-4 flex items-center justify-center text-[#0B6B4E]">
+        <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl max-w-md w-full border border-emerald-900/10 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 bg-[#0B6B4E] text-white rounded-full flex items-center justify-center mx-auto shadow">
+              {authMode === 'login' ? <LogIn className="w-7 h-7" /> : <UserPlus className="w-7 h-7" />}
+            </div>
             <h2 className="font-heading font-extrabold text-2xl text-[#0B6B4E]">
-              Patient Portal Access
+              {authMode === 'login' ? 'Patient Portal Login' : 'Create Patient Account'}
             </h2>
-            <p className="text-xs sm:text-sm text-emerald-900/80 mt-2">
-              Sign in to manage your appointments, book doctor visits, and update your patient profile.
+            <p className="text-xs sm:text-sm text-emerald-900/80">
+              {authMode === 'login'
+                ? 'Sign in with your registered email & Secret Portal Key to view appointments.'
+                : 'Register your details to schedule medical appointments and access your records.'}
             </p>
           </div>
 
-          <button
-            onClick={() => signInWithGoogle()}
-            className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-3 px-4 rounded-xl shadow transition-colors flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <User className="w-4 h-4" />
-            <span>Sign in with Google</span>
-          </button>
+          {/* Form switch tab pills */}
+          <div className="bg-emerald-900/5 p-1 rounded-xl flex gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setLoginError('');
+                setSignupError('');
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                authMode === 'login' ? 'bg-[#0B6B4E] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-900/10'
+              }`}
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signup');
+                setLoginError('');
+                setSignupError('');
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                authMode === 'signup' ? 'bg-[#0B6B4E] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-900/10'
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          {/* LOGIN FORM */}
+          {authMode === 'login' && (
+            <form onSubmit={handleLoginSubmit} className="space-y-4">
+              {loginError && (
+                <div className="bg-red-50 border border-red-300 p-3 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                  <span>{loginError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="patient@example.com"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Secret Portal Key
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Enter your Secret Portal Key"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginSubmitting}
+                className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-3 px-4 rounded-xl shadow transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 text-xs sm:text-sm mt-2"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>{loginSubmitting ? 'Verifying Key...' : 'Log In to Patient Portal'}</span>
+              </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setLoginError('');
+                    setSignupError('');
+                  }}
+                  className="text-xs text-[#0B6B4E] font-bold hover:underline cursor-pointer"
+                >
+                  Don't have an account? Sign Up
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* SIGNUP FORM */}
+          {authMode === 'signup' && (
+            <form onSubmit={handleSignupSubmit} className="space-y-4">
+              {signupError && (
+                <div className="bg-red-50 border border-red-300 p-3 rounded-xl text-xs text-red-700 font-medium space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{signupError}</span>
+                  </div>
+                  {duplicateEmailMsg && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginEmail(signupEmail);
+                        setAuthMode('login');
+                        setLoginError('');
+                        setSignupError('');
+                      }}
+                      className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold py-1.5 px-3 rounded-lg shadow-xs transition-colors cursor-pointer mt-1"
+                    >
+                      Log In as {signupEmail}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Full Name
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={signupName}
+                    onChange={(e) => setSignupName(e.target.value)}
+                    placeholder="e.g. Fatima Ali"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="email"
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    placeholder="fatima@example.com"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Secret Portal Key
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="password"
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                    placeholder="Create your Secret Portal Key"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-emerald-900 mb-1">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
+                  <input
+                    type="password"
+                    value={signupConfirmPassword}
+                    onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your Secret Portal Key"
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-1">
+                <label className="flex items-start gap-2.5 text-xs text-emerald-900/90 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={signupConfirmEmailChecked}
+                    onChange={(e) => setSignupConfirmEmailChecked(e.target.checked)}
+                    required
+                    className="mt-0.5 rounded text-[#0B6B4E] focus:ring-[#0B6B4E]"
+                  />
+                  <span className="font-semibold leading-snug">
+                    I confirm my email address is correct
+                  </span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={signupSubmitting}
+                className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-3 px-4 rounded-xl shadow transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 text-xs sm:text-sm mt-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>{signupSubmitting ? 'Creating Account...' : 'Create Account & Sign In'}</span>
+              </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setLoginError('');
+                    setSignupError('');
+                  }}
+                  className="text-xs text-[#0B6B4E] font-bold hover:underline cursor-pointer"
+                >
+                  Already have an account? Log In
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -259,23 +600,17 @@ export const PortalPage: React.FC = () => {
       <div className="bg-[#0B6B4E] text-white py-8 px-4 sm:px-6 lg:px-8 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {user.photoURL ? (
-              <img
-                src={user.photoURL}
-                alt={patientProfile?.name || 'Patient'}
-                className="w-14 h-14 rounded-full border-2 border-white object-cover"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-full bg-emerald-800 text-white font-bold text-xl flex items-center justify-center border-2 border-white">
-                {patientProfile?.name?.charAt(0) || 'P'}
-              </div>
-            )}
+            <div className="w-14 h-14 rounded-full bg-emerald-800 text-white font-bold text-xl flex items-center justify-center border-2 border-white shadow">
+              {(patientProfile?.name || auth.currentUser?.displayName || 'P').charAt(0).toUpperCase()}
+            </div>
             <div>
               <h1 className="font-heading font-extrabold text-xl sm:text-2xl text-white">
-                Welcome, {patientProfile?.name || user.displayName}
+                Welcome, {patientProfile?.name || auth.currentUser?.displayName || 'Patient'}
               </h1>
-              <p className="text-xs text-emerald-100 flex items-center gap-2 mt-0.5">
-                <span>Patient ID: {user.uid.slice(0, 8)}</span>
+              <p className="text-xs text-emerald-100 flex flex-wrap items-center gap-2 mt-0.5">
+                <span>Patient ID: {(auth.currentUser?.uid || user.uid).slice(0, 8)}</span>
+                <span>•</span>
+                <span>Email: {auth.currentUser?.email || user.email}</span>
                 <span>•</span>
                 <span>Phone: {patientProfile?.phone || 'Not set'}</span>
               </p>
@@ -283,8 +618,8 @@ export const PortalPage: React.FC = () => {
           </div>
 
           <button
-            onClick={() => logout()}
-            className="bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 hover:text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors border border-emerald-600"
+            onClick={handleLogout}
+            className="bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 hover:text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors border border-emerald-600 cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Logout</span>

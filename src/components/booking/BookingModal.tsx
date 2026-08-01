@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   X, 
   Calendar, 
@@ -15,7 +16,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { collection, addDoc, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Doctor, Service } from '../../types';
@@ -34,7 +35,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   preselectedDoctorId,
   preselectedServiceId,
 }) => {
-  const { user, patientProfile, signInWithGoogle } = useAuth();
+  const navigate = useNavigate();
+  const { user, patientProfile } = useAuth();
   const { t } = useLanguage();
 
   const [doctors, setDoctors] = useState<Doctor[]>(ALL_DOCTORS);
@@ -156,19 +158,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setSigningIn(true);
-    setErrorMsg('');
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      console.error('Sign in error:', err);
-      setErrorMsg('Failed to sign in with Google. Please try again.');
-    } finally {
-      setSigningIn(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -196,8 +185,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       const selectedDoc = doctors.find((d) => d.id === doctorId);
       const selectedServ = services.find((s) => s.id === service)?.name || service || 'General OPD';
 
+      const patientUid = auth.currentUser?.uid || user.uid;
+
       const appointmentData = {
-        patientId: user.uid,
+        patientId: patientUid,
         patientName: name,
         phone,
         email,
@@ -225,11 +216,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   };
 
   const getFilteredDoctors = () => {
-    if (!service) return doctors;
+    const availableDocs = doctors.filter((d) => d.isAvailable !== false);
+    if (!service) return availableDocs;
     const selectedServObj = services.find((s) => s.id === service || s.name === service);
     const selectedName = (selectedServObj ? selectedServObj.name : service).toLowerCase();
 
-    const filtered = doctors.filter((d) => {
+    const filtered = availableDocs.filter((d) => {
       const spec = (d.specialty || '').toLowerCase();
       if (selectedName.includes('general physician')) {
         return spec.includes('general physician') || spec.includes('family physician') || spec.includes('physician');
@@ -279,7 +271,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       return spec.includes(selectedName) || selectedName.includes(spec);
     });
 
-    return filtered.length > 0 ? filtered : doctors;
+    return filtered.length > 0 ? filtered : availableDocs;
   };
 
   const filteredDoctors = getFilteredDoctors();
@@ -393,22 +385,25 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                     <span>Authentication Required to Book</span>
                   </div>
                   <p className="text-xs text-amber-800 leading-relaxed">
-                    Appointment booking is restricted to authenticated patients. Please sign in to verify your contact information and confirm your slot.
+                    Appointment booking is restricted to authenticated patients. Please log in or create a patient account to confirm your slot.
                   </p>
                   <button
                     type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={signingIn}
+                    onClick={() => {
+                      onClose();
+                      navigate('/portal');
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
                     className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white py-2.5 px-4 rounded-xl text-xs font-bold shadow flex items-center justify-center gap-2 cursor-pointer transition-colors"
                   >
                     <LogIn className="w-4 h-4" />
-                    <span>{signingIn ? 'Signing In...' : 'Sign In with Google to Continue'}</span>
+                    <span>Log In / Sign Up to Continue</span>
                   </button>
                 </div>
               ) : (
                 <div className="bg-emerald-900/5 p-3 rounded-xl border border-emerald-800/10 text-xs text-emerald-900 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 font-semibold">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Logged in as: {user.displayName || user.email}
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Logged in as: {patientProfile?.name || user.displayName || user.email}
                   </span>
                 </div>
               )}

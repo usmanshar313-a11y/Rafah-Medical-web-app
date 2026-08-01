@@ -285,6 +285,11 @@ export const DoctorsPage: React.FC = () => {
                         {doc.roomNumber}
                       </span>
                     )}
+                    {doc.isAvailable === false && (
+                      <span className="absolute top-2 right-2 bg-amber-600 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow border border-amber-400">
+                        On Leave
+                      </span>
+                    )}
                   </div>
 
                   <div className="p-4 space-y-2">
@@ -318,13 +323,23 @@ export const DoctorsPage: React.FC = () => {
                 </div>
 
                 <div className="p-4 pt-0 mt-2">
-                  <button
-                    onClick={() => handleOpenBooking(doc.id)}
-                    className="w-full bg-[#D64545] hover:bg-[#c23737] text-white py-2.5 rounded-xl text-xs font-bold shadow flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Book Visit with Doctor</span>
-                  </button>
+                  {doc.isAvailable !== false ? (
+                    <button
+                      onClick={() => handleOpenBooking(doc.id)}
+                      className="w-full bg-[#D64545] hover:bg-[#c23737] text-white py-2.5 rounded-xl text-xs font-bold shadow flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Book Visit with Doctor</span>
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      className="w-full bg-amber-100 text-amber-800 border border-amber-300 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Currently On Leave</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

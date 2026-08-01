@@ -421,6 +421,7 @@ export const AdminApp: React.FC = () => {
       bio: docBio,
       availableDays: docDays ? (docDays.includes(',') ? docDays.split(',').map((d) => d.trim()) : docDays) : '',
       roomNumber: docRoom,
+      isAvailable: editingDoctor ? (editingDoctor.isAvailable !== false) : true,
     };
 
     try {
@@ -436,6 +437,23 @@ export const AdminApp: React.FC = () => {
     } catch (err: any) {
       console.error('Error saving doctor:', err);
       showToast(`Failed to save doctor: ${err?.message || 'Unknown error.'}`, 'error');
+    }
+  };
+
+  const handleToggleDoctorAvailability = async (docId: string, currentIsAvailable: boolean, docName?: string) => {
+    const newStatus = !currentIsAvailable;
+    setDoctors((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, isAvailable: newStatus } : d))
+    );
+    try {
+      await updateDoc(doc(db, 'doctors', docId), { isAvailable: newStatus });
+      showToast(`Doctor "${docName || 'record'}" set to ${newStatus ? 'Available' : 'On Leave'}.`, 'success');
+    } catch (err: any) {
+      console.error('Failed to update doctor availability:', err);
+      setDoctors((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, isAvailable: currentIsAvailable } : d))
+      );
+      showToast(`Failed to update availability: ${err?.message || 'Unknown error.'}`, 'error');
     }
   };
 
@@ -1264,66 +1282,86 @@ export const AdminApp: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {doctors.map((d) => (
-                <div key={d.id} className="p-4 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 space-y-3 flex flex-col justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={d.photoURL || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'}
-                        alt={d.name}
-                        className="w-12 h-12 rounded-xl object-cover shrink-0"
-                      />
-                      <div>
-                        <div className="font-bold text-sm text-[#0B6B4E]">{d.name}</div>
-                        <div className="text-xs text-[#D64545] font-semibold">{d.specialty}</div>
+              {doctors.map((d) => {
+                const isAvail = d.isAvailable !== false;
+                return (
+                  <div key={d.id} className="p-4 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 space-y-3 flex flex-col justify-between relative">
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <img
+                            src={d.photoURL || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'}
+                            alt={d.name}
+                            className="w-12 h-12 rounded-xl object-cover shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm text-[#0B6B4E] truncate">{d.name}</div>
+                            <div className="text-xs text-[#D64545] font-semibold truncate">{d.specialty}</div>
+                          </div>
+                        </div>
+
+                        {/* Availability Toggle Switch */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDoctorAvailability(d.id, isAvail, d.name)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all shadow-2xs cursor-pointer shrink-0 border ${
+                            isAvail
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                              : 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
+                          }`}
+                          title="Click to toggle doctor availability"
+                        >
+                          <span className={`w-2 h-2 rounded-full ${isAvail ? 'bg-emerald-600' : 'bg-amber-600'}`} />
+                          <span>{isAvail ? 'Available' : 'On Leave'}</span>
+                        </button>
                       </div>
+
+                      {(d.timing || d.availableDays) && (
+                        <div className="text-[11px] text-emerald-900/80 bg-white/60 p-2 rounded-lg space-y-0.5">
+                          {d.availableDays && (
+                            <div>
+                              <span className="font-bold">Date/Days: </span>
+                              {Array.isArray(d.availableDays) ? d.availableDays.join(', ') : d.availableDays}
+                            </div>
+                          )}
+                          {d.timing && (
+                            <div>
+                              <span className="font-bold">Timing: </span>
+                              {d.timing}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {(d.timing || d.availableDays) && (
-                      <div className="text-[11px] text-emerald-900/80 bg-white/60 p-2 rounded-lg space-y-0.5">
-                        {d.availableDays && (
-                          <div>
-                            <span className="font-bold">Date/Days: </span>
-                            {Array.isArray(d.availableDays) ? d.availableDays.join(', ') : d.availableDays}
-                          </div>
-                        )}
-                        {d.timing && (
-                          <div>
-                            <span className="font-bold">Timing: </span>
-                            {d.timing}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-emerald-900/10">
+                      <button
+                        onClick={() => {
+                          setEditingDoctor(d);
+                          setDocName(d.name || '');
+                          setDocSpecialty(d.specialty || '');
+                          setDocTiming(d.timing || '');
+                          setDocPhoto(d.photoURL || '');
+                          setDocBio(d.bio || '');
+                          setDocDays(Array.isArray(d.availableDays) ? d.availableDays.join(', ') : (d.availableDays || ''));
+                          setDocRoom(d.roomNumber || '');
+                          setDoctorModalOpen(true);
+                        }}
+                        className="text-xs font-bold text-[#0B6B4E] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" /> Edit
+                      </button>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-emerald-900/10">
-                    <button
-                      onClick={() => {
-                        setEditingDoctor(d);
-                        setDocName(d.name || '');
-                        setDocSpecialty(d.specialty || '');
-                        setDocTiming(d.timing || '');
-                        setDocPhoto(d.photoURL || '');
-                        setDocBio(d.bio || '');
-                        setDocDays(Array.isArray(d.availableDays) ? d.availableDays.join(', ') : (d.availableDays || ''));
-                        setDocRoom(d.roomNumber || '');
-                        setDoctorModalOpen(true);
-                      }}
-                      className="text-xs font-bold text-[#0B6B4E] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Edit
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteDoctor(d.id, d.name)}
-                      className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Delete
-                    </button>
+                      <button
+                        onClick={() => handleDeleteDoctor(d.id, d.name)}
+                        className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

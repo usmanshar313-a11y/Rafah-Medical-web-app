@@ -1,22 +1,20 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
   User, 
-  signInWithPopup, 
   signOut as firebaseSignOut, 
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, googleProvider, db } from '../firebase';
+import { auth, db } from '../firebase';
 import { Patient } from '../types';
 
 interface AuthContextType {
   user: User | null;
   patientProfile: Patient | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<User | null>;
-  signUpWithEmail: (email: string, pass: string, name: string, phone: string) => Promise<User | null>;
+  signUpWithEmail: (email: string, pass: string, name: string, phone?: string) => Promise<User | null>;
   signInWithEmail: (email: string, pass: string) => Promise<User | null>;
   logout: () => Promise<void>;
   updatePatientProfile: (updatedData: Partial<Patient>) => Promise<void>;
@@ -40,9 +38,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         const newPatient: Patient = {
           uid: firebaseUser.uid,
-          name: firebaseUser.displayName || extraData?.name || 'Patient',
+          name: extraData?.name || firebaseUser.displayName || 'Patient',
           email: firebaseUser.email || extraData?.email || '',
-          phone: firebaseUser.phoneNumber || extraData?.phone || '',
+          phone: extraData?.phone || firebaseUser.phoneNumber || '',
           photoURL: firebaseUser.photoURL || '',
           createdAt: new Date().toISOString(),
           ...extraData,
@@ -69,43 +67,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    try {
-      const res = await signInWithPopup(auth, googleProvider);
-      if (res.user) {
-        await fetchOrCreatePatient(res.user);
-      }
-      return res.user;
-    } catch (error) {
-      console.error('Google Sign In Error:', error);
-      throw error;
+  const signUpWithEmail = async (email: string, pass: string, name: string, phone: string = '') => {
+    const cleanEmail = email.trim();
+    const res = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+    if (res.user) {
+      const patientData: Patient = {
+        uid: res.user.uid,
+        name: name.trim() || 'Patient',
+        email: cleanEmail,
+        phone: phone.trim(),
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'patients', res.user.uid), patientData);
+      setPatientProfile(patientData);
     }
-  };
-
-  const signUpWithEmail = async (email: string, pass: string, name: string, phone: string) => {
-    try {
-      const res = await createUserWithEmailAndPassword(auth, email, pass);
-      if (res.user) {
-        await fetchOrCreatePatient(res.user, { name, phone, email });
-      }
-      return res.user;
-    } catch (error) {
-      console.error('Email Signup Error:', error);
-      throw error;
-    }
+    return res.user;
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
-    try {
-      const res = await signInWithEmailAndPassword(auth, email, pass);
-      if (res.user) {
-        await fetchOrCreatePatient(res.user);
-      }
-      return res.user;
-    } catch (error) {
-      console.error('Email Signin Error:', error);
-      throw error;
+    const cleanEmail = email.trim();
+    const res = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+    if (res.user) {
+      await fetchOrCreatePatient(res.user);
     }
+    return res.user;
   };
 
   const logout = async () => {
@@ -133,7 +118,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         patientProfile,
         loading,
-        signInWithGoogle,
         signUpWithEmail,
         signInWithEmail,
         logout,

@@ -311,6 +311,13 @@ export const DepartmentDetailPage: React.FC = () => {
                           <span className="truncate">OPD Room: {doc.roomNumber}</span>
                         </p>
                       )}
+
+                      {doc.isAvailable === false && (
+                        <div className="mt-2 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                          <span className="w-2 h-2 rounded-full bg-amber-600" />
+                          <span>Currently Unavailable (On Leave)</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -357,13 +364,23 @@ export const DepartmentDetailPage: React.FC = () => {
                     <span>View Detail</span>
                   </button>
 
-                  <button
-                    onClick={() => handleOpenBooking(doc.id)}
-                    className="flex-1 bg-[#0B6B4E] hover:bg-[#08523c] active:bg-[#064230] text-white py-2.5 px-3 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Book Appointment</span>
-                  </button>
+                  {doc.isAvailable !== false ? (
+                    <button
+                      onClick={() => handleOpenBooking(doc.id)}
+                      className="flex-1 bg-[#0B6B4E] hover:bg-[#08523c] active:bg-[#064230] text-white py-2.5 px-3 rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Book Appointment</span>
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      className="flex-1 bg-amber-100 text-amber-800 border border-amber-300 py-2.5 px-3 rounded-xl text-xs font-bold opacity-80 cursor-not-allowed flex items-center justify-center gap-1.5"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>On Leave</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
