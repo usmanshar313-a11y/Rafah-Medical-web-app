@@ -295,7 +295,7 @@ export const PortalPage: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Appointment',
-      message: 'Are you sure you want to delete this completed appointment?',
+      message: 'Are you sure you want to delete this appointment?',
       onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isLoading: true }));
         try {
@@ -381,16 +381,6 @@ export const PortalPage: React.FC = () => {
           </span>
         );
     }
-  };
-
-  const isAppointmentCompleted = (status: AppointmentStatus) => {
-    const normalizedStatus = normalizeAppointmentStatus(status);
-    return [
-      'completed',
-      'done',
-      'finished',
-      'complete',
-    ].some((value) => normalizedStatus === value || normalizedStatus.includes(value));
   };
 
   const isAppointmentCancelled = (status: AppointmentStatus) => {
@@ -924,7 +914,7 @@ export const PortalPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-end pt-3 border-t border-emerald-900/10 gap-2">
-                        {!isAppointmentCancelled(appt.status) && !isAppointmentCompleted(appt.status) && (
+                        {!isAppointmentCancelled(appt.status) && (
                           <button
                             onClick={() => handleCancelAppointment(appt.id)}
                             className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
@@ -932,14 +922,12 @@ export const PortalPage: React.FC = () => {
                             Cancel Appointment
                           </button>
                         )}
-                        {isAppointmentCompleted(appt.status) && (
-                          <button
-                            onClick={() => handleDeleteAppointment(appt.id)}
-                            className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
-                          >
-                            Delete Appointment
-                          </button>
-                        )}
+                        <button
+                         
+                          className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
+                        >
+                          Delete Appointment
+                        </button>
                       </div>
                     </div>
                   );
