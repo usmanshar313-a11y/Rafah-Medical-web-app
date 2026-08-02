@@ -92,12 +92,14 @@ export const PortalPage: React.FC = () => {
     isOpen: boolean;
     title: string;
     message: string;
+    confirmLabel?: string;
     onConfirm: () => void | Promise<void>;
     isLoading?: boolean;
   }>({
     isOpen: false,
     title: '',
     message: '',
+    confirmLabel: 'Confirm',
     onConfirm: () => {},
   });
 
@@ -168,7 +170,6 @@ export const PortalPage: React.FC = () => {
         setResetSentModalOpen(false);
         setResetMessage('');
     } catch (err: any) {
-        console.error('LOGIN ERROR CODE:', err?.code, 'MESSAGE:', err?.message, 'RAW:', err);
         try {
           await signOut(auth);
         } catch (e) {
@@ -232,7 +233,6 @@ export const PortalPage: React.FC = () => {
       setShowResetPassword(false);
       setResetEmail('');
     } catch (err: any) {
-      console.error('Password reset error:', err);
       const message = 'If an account exists with this email, a password reset link was sent. Please check your inbox and spam folders.';
       setResetMessage(message);
       setResetSentEmail(cleanEmail);
@@ -283,7 +283,6 @@ export const PortalPage: React.FC = () => {
 
         await signUpWithEmail(cleanEmail, signupPassword, signupName);
     } catch (err: any) {
-        console.error('SIGNUP ERROR CODE:', err?.code, 'MESSAGE:', err?.message, 'RAW:', err);
         const code = err?.code || '';
         const msg = err?.message || '';
         if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
@@ -323,6 +322,7 @@ export const PortalPage: React.FC = () => {
       isOpen: true,
       title: 'Cancel Appointment',
       message: 'Are you sure you want to cancel this appointment?',
+      confirmLabel: 'Confirm Cancel',
       onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isLoading: true }));
         try {
@@ -349,7 +349,8 @@ export const PortalPage: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Appointment',
-      message: 'Are you sure you want to delete this appointment?',
+      message: 'Please confirm deletion of this appointment from your schedule.',
+      confirmLabel: 'Confirm Delete',
       onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isLoading: true }));
         try {
@@ -440,6 +441,21 @@ export const PortalPage: React.FC = () => {
   const isAppointmentCancelled = (status: AppointmentStatus) => {
     const normalizedStatus = normalizeAppointmentStatus(status);
     return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+  };
+
+  const isAppointmentCompleted = (status: AppointmentStatus) => {
+    const normalizedStatus = normalizeAppointmentStatus(status);
+    return normalizedStatus === 'completed' || normalizedStatus === 'done';
+  };
+
+  const getAppointmentActionLabel = (status: AppointmentStatus) => {
+    return isAppointmentCompleted(status) || isAppointmentCancelled(status)
+      ? 'Delete Appointment'
+      : 'Cancel Appointment';
+  };
+
+  const shouldUseDeleteAction = (status: AppointmentStatus) => {
+    return isAppointmentCompleted(status) || isAppointmentCancelled(status);
   };
 
   // Password strength checks for Sign Up: length, number, uppercase, symbol
@@ -1091,10 +1107,14 @@ export const PortalPage: React.FC = () => {
 
                       <div className="flex items-center justify-end pt-3 border-t border-emerald-900/10">
                         <button
-                          onClick={() => handleDeleteAppointment(appt.id)}
+                          onClick={() =>
+                            shouldUseDeleteAction(appt.status)
+                              ? handleDeleteAppointment(appt.id)
+                              : handleCancelAppointment(appt.id)
+                          }
                           className="text-red-600 hover:text-red-800 font-bold text-xs py-1 px-3 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
                         >
-                          Delete Appointment
+                          {getAppointmentActionLabel(appt.status)}
                         </button>
                       </div>
                     </div>
@@ -1229,7 +1249,7 @@ export const PortalPage: React.FC = () => {
                 disabled={confirmModal.isLoading}
                 className="w-full sm:w-auto flex-1 rounded-xl bg-red-600 text-white py-3 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
-                {confirmModal.isLoading ? 'Deleting...' : 'Confirm Delete'}
+                {confirmModal.isLoading ? 'Processing...' : confirmModal.confirmLabel || 'Confirm'}
               </button>
             </div>
           </div>
