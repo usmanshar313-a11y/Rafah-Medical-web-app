@@ -22,6 +22,14 @@ import {
   FileSpreadsheet,
   CalendarDays,
   SlidersHorizontal,
+  Star,
+  User,
+  Phone,
+  RefreshCw,
+  TrendingUp,
+  Activity,
+  Archive,
+  BarChart2,
 } from 'lucide-react';
 import {
   PieChart,
@@ -43,7 +51,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  User,
+  User as FirebaseUser,
 } from 'firebase/auth';
 import {
   collection,
@@ -57,7 +65,6 @@ import { auth, db } from '../firebase';
 import { Appointment, Doctor, Review, Patient, AppointmentStatus } from '../types';
 import { ConfirmModal } from '../components/common/ConfirmModal';
 import { Toast, ToastMessage } from '../components/common/Toast';
-import { downloadTextAsPdf } from './pdfUtils';
 
 const RAW_SECRET_KEY = ((import.meta as any).env?.VITE_ADMIN_SECRET_KEY || '@As"{sd34%Da{sad-').trim();
 const CLEAN_SECRET_KEY = RAW_SECRET_KEY.replace(/^['"]|['"]$/g, '').trim();
@@ -77,7 +84,7 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_TIME_MS = 10 * 60 * 1000; // 10 minutes lock
 
 export const AdminApp: React.FC = () => {
-  const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [adminUser, setAdminUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   // Login Form State & Security Rate Limiting
@@ -99,6 +106,7 @@ export const AdminApp: React.FC = () => {
     const savedAttempts = localStorage.getItem('admin_failed_attempts');
     return savedAttempts ? parseInt(savedAttempts, 10) : 0;
   });
+
   const [lockUntil, setLockUntil] = useState<number>(() => {
     const savedLock = localStorage.getItem('admin_lock_until');
     if (savedLock) {
@@ -120,7 +128,6 @@ export const AdminApp: React.FC = () => {
     }
   }, [lockUntil]);
 
-  // Check if currently locked out
   const isLockedOut = lockUntil > 0 && Date.now() < lockUntil;
 
   const handleFailedAttempt = (customMsg?: string) => {
@@ -151,14 +158,14 @@ export const AdminApp: React.FC = () => {
   // Admin Data Collections
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]); // kept only to power the "Registered Patients" stat card
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
 
-  // Active Admin Tab (Services and Patients & Reports removed)
+  // Active Admin Tab
   const [activeTab, setActiveTab] = useState<'appointments' | 'doctors' | 'reviews' | 'analytics'>('appointments');
 
-  // Filter & Search
+  // Filter & Search for Appointments
   const [apptStatusFilter, setApptStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -173,7 +180,7 @@ export const AdminApp: React.FC = () => {
   const [analyticsCustomStartDate, setAnalyticsCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [analyticsCustomEndDate, setAnalyticsCustomEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  // CSV Export Modal State & Filters
+  // CSV Export Modal State
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportScope, setExportScope] = useState<'current_view' | 'all' | 'today' | 'specific' | 'range'>('current_view');
   const [exportSpecificDate, setExportSpecificDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -195,7 +202,6 @@ export const AdminApp: React.FC = () => {
   // Appointment Manual Selection & Deletion State
   const [selectedApptIds, setSelectedApptIds] = useState<string[]>([]);
   const [deletingAppts, setDeletingAppts] = useState<boolean>(false);
-  const [deleteErrorMsg, setDeleteErrorMsg] = useState<string>('');
 
   // Seed Status Notification
   const [seedSuccessMsg, setSeedSuccessMsg] = useState('');
@@ -211,6 +217,7 @@ export const AdminApp: React.FC = () => {
     title: string;
     message: string;
     confirmLabel?: string;
+    cancelLabel?: string;
     variant?: 'danger' | 'warning' | 'info';
     onConfirm: () => void | Promise<void>;
     isLoading?: boolean;
@@ -218,6 +225,7 @@ export const AdminApp: React.FC = () => {
     isOpen: false,
     title: '',
     message: '',
+    confirmLabel: 'Confirm',
     onConfirm: () => {},
   });
 
@@ -235,9 +243,8 @@ export const AdminApp: React.FC = () => {
           setAdminUser(usr);
           fetchAllAdminData();
         } else {
-          // Patient session detected — deny access to Admin Panel
           setAdminUser(null);
-          setLoginError(`Access Denied: Logged in account (${usr.email}) is a patient account, not an Admin Owner account. Please sign in with Admin credentials.`);
+          setLoginError(`Access Denied: Logged in account (${usr.email}) is a patient account, not an Admin account. Please sign in with Admin credentials.`);
         }
       } else {
         setAdminUser(null);
@@ -249,7 +256,6 @@ export const AdminApp: React.FC = () => {
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Check lock
     if (lockUntil && Date.now() < lockUntil) {
       const remainingSec = Math.ceil((lockUntil - Date.now()) / 1000);
       const mins = Math.floor(remainingSec / 60);
@@ -263,13 +269,11 @@ export const AdminApp: React.FC = () => {
       return;
     }
 
-    // Verify Secret Key
     if (!isSecretKeyValid(secretKey)) {
       handleFailedAttempt('Invalid Secret Security Key. Access denied.');
       return;
     }
 
-    // Verify email is an authorized admin email
     const trimmedEmail = email.trim().toLowerCase();
     const isAdminEmail =
       trimmedEmail === 'admin@rafahemedical.com' ||
@@ -285,12 +289,10 @@ export const AdminApp: React.FC = () => {
     setLoginError('');
 
     try {
-      // Clear any non-admin patient auth session if active
       if (auth.currentUser && auth.currentUser.email !== trimmedEmail) {
         await signOut(auth);
       }
 
-      // Candidate passwords to try for existing accounts created under different internal keys
       const internalAuthPass = `AdminPass_${secretKey.trim()}_2026`;
       const candidatePasswords = [
         internalAuthPass,
@@ -304,7 +306,6 @@ export const AdminApp: React.FC = () => {
 
       let signedIn = false;
 
-      // 1. Try signing in with candidate passwords
       for (const pass of candidatePasswords) {
         try {
           await signInWithEmailAndPassword(auth, trimmedEmail, pass);
@@ -317,7 +318,6 @@ export const AdminApp: React.FC = () => {
         }
       }
 
-      // 2. If sign in failed, attempt creating the user account in Firebase
       if (!signedIn) {
         try {
           await createUserWithEmailAndPassword(auth, trimmedEmail, internalAuthPass);
@@ -328,7 +328,6 @@ export const AdminApp: React.FC = () => {
             throw createErr;
           }
 
-          // If email is already in use with another unknown password, authenticate with an admin alias account
           if (cCode === 'auth/email-already-in-use') {
             const aliasEmail = 'admin_owner@rafahemedical.com';
             try {
@@ -370,10 +369,19 @@ export const AdminApp: React.FC = () => {
     }
   };
 
+  const handleAdminLogout = async () => {
+    try {
+      await signOut(auth);
+      setAdminUser(null);
+      showToast('Logged out of Admin Portal successfully.', 'info');
+    } catch (err: any) {
+      showToast(`Error logging out: ${err?.message || 'Unknown error'}`, 'error');
+    }
+  };
+
   const fetchAllAdminData = async () => {
     setDataLoading(true);
 
-    // Appointments
     try {
       const apptSnap = await getDocs(collection(db, 'appointments'));
       const apptList: Appointment[] = [];
@@ -384,7 +392,6 @@ export const AdminApp: React.FC = () => {
       console.error('Error fetching appointments:', err);
     }
 
-    // Doctors
     try {
       const docSnap = await getDocs(collection(db, 'doctors'));
       const docList: Doctor[] = [];
@@ -394,7 +401,6 @@ export const AdminApp: React.FC = () => {
       console.error('Error fetching doctors:', err);
     }
 
-    // Patients (kept minimal — only used for the "Registered Patients" stat card)
     try {
       const patSnap = await getDocs(collection(db, 'patients'));
       const patList: Patient[] = [];
@@ -404,7 +410,6 @@ export const AdminApp: React.FC = () => {
       console.error('Error fetching patients:', err);
     }
 
-    // Reviews
     try {
       const revSnap = await getDocs(collection(db, 'reviews'));
       const revList: Review[] = [];
@@ -426,7 +431,7 @@ export const AdminApp: React.FC = () => {
       showToast(`Appointment status updated to ${status}.`, 'success');
     } catch (err: any) {
       console.error('Failed to update appointment status:', err);
-      showToast(`Failed to update appointment status: ${err?.message || 'Unknown error. Check Firestore permissions.'}`, 'error');
+      showToast(`Failed to update appointment status: ${err?.message || 'Unknown error.'}`, 'error');
     }
   };
 
@@ -461,14 +466,14 @@ export const AdminApp: React.FC = () => {
     }
   };
 
-  const handleToggleDoctorAvailability = async (docId: string, currentIsAvailable: boolean, docName?: string) => {
+  const handleToggleDoctorAvailability = async (docId: string, currentIsAvailable: boolean, doctorName?: string) => {
     const newStatus = !currentIsAvailable;
     setDoctors((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, isAvailable: newStatus } : d))
     );
     try {
       await updateDoc(doc(db, 'doctors', docId), { isAvailable: newStatus });
-      showToast(`Doctor "${docName || 'record'}" set to ${newStatus ? 'Available' : 'On Leave'}.`, 'success');
+      showToast(`Doctor "${doctorName || 'record'}" set to ${newStatus ? 'Available' : 'On Leave'}.`, 'success');
     } catch (err: any) {
       console.error('Failed to update doctor availability:', err);
       setDoctors((prev) =>
@@ -493,7 +498,7 @@ export const AdminApp: React.FC = () => {
           showToast('Doctor record deleted successfully.', 'success');
         } catch (err: any) {
           console.error('Failed to delete doctor:', err);
-          showToast(`Failed to delete doctor: ${err?.message || 'Unknown error. Check Firestore permissions.'}`, 'error');
+          showToast(`Failed to delete doctor: ${err?.message || 'Unknown error.'}`, 'error');
         } finally {
           closeConfirmModal();
         }
@@ -529,7 +534,7 @@ export const AdminApp: React.FC = () => {
           showToast('Review deleted successfully.', 'success');
         } catch (err: any) {
           console.error('Failed to delete review:', err);
-          showToast(`Failed to delete review: ${err?.message || 'Unknown error. Check Firestore permissions.'}`, 'error');
+          showToast(`Failed to delete review: ${err?.message || 'Unknown error.'}`, 'error');
         } finally {
           closeConfirmModal();
         }
@@ -537,7 +542,7 @@ export const AdminApp: React.FC = () => {
     });
   };
 
-  // ---- Appointment Selection & Deletion Logic ----
+  // Appointment Selection & Deletion Logic
   const handleToggleSelectAppt = (id: string) => {
     setSelectedApptIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -560,7 +565,7 @@ export const AdminApp: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Appointment',
-      message: `Are you sure you want to delete the appointment for "${patientName || 'this patient'}"? This will archive it and remove it from the appointments table.`,
+      message: `Are you sure you want to delete the appointment for "${patientName || 'this patient'}"? This will archive it and remove it from the table.`,
       confirmLabel: 'Delete Appointment',
       variant: 'danger',
       onConfirm: async () => {
@@ -574,7 +579,7 @@ export const AdminApp: React.FC = () => {
           showToast('Appointment archived successfully.', 'success');
         } catch (err: any) {
           console.error('Failed to delete appointment:', err);
-          showToast(`Failed to archive appointment: ${err?.message || 'Unknown error. Check Firestore permissions.'}`, 'error');
+          showToast(`Failed to archive appointment: ${err?.message || 'Unknown error.'}`, 'error');
         } finally {
           closeConfirmModal();
         }
@@ -589,13 +594,12 @@ export const AdminApp: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Selected Appointments',
-      message: `Are you sure you want to delete ${count} selected appointment(s)? This will archive them and remove them from the appointments table.`,
+      message: `Are you sure you want to delete ${count} selected appointment(s)? This will archive them and remove them from the active list.`,
       confirmLabel: `Delete ${count} Appointment(s)`,
       variant: 'danger',
       onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isLoading: true }));
         setDeletingAppts(true);
-        setDeleteErrorMsg('');
 
         const results = await Promise.allSettled(
           selectedApptIds.map(async (id) => {
@@ -605,15 +609,9 @@ export const AdminApp: React.FC = () => {
         );
 
         const succeededIds: string[] = [];
-        const failures: string[] = [];
-
         results.forEach((res, idx) => {
-          const targetId = selectedApptIds[idx];
           if (res.status === 'fulfilled') {
             succeededIds.push(res.value);
-          } else {
-            failures.push(targetId);
-            console.error(`Failed to delete appointment ${targetId}:`, res.reason);
           }
         });
 
@@ -624,15 +622,6 @@ export const AdminApp: React.FC = () => {
             )
           );
           setSelectedApptIds((prev) => prev.filter((id) => !succeededIds.includes(id)));
-        }
-
-        if (failures.length > 0) {
-          const msg =
-            `${failures.length} of ${count} appointment(s) could not be archived. ` +
-            `This is almost always caused by Firestore Security Rules blocking the update.`;
-          setDeleteErrorMsg(msg);
-          showToast(msg, 'error');
-        } else {
           showToast(`${succeededIds.length} appointment(s) archived successfully!`, 'success');
         }
 
@@ -740,15 +729,11 @@ export const AdminApp: React.FC = () => {
     let startDate: Date | null = null;
     let endDate: Date | null = null;
     let label = 'All Time';
-    let previousStartDate: Date | null = null;
-    let previousEndDate: Date | null = null;
 
     if (analyticsDateFilter === 'today') {
       startDate = toStartOfDay(now);
       endDate = toEndOfDay(now);
       label = 'Today';
-      previousStartDate = toStartOfDay(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-      previousEndDate = toEndOfDay(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     } else if (analyticsDateFilter === 'week') {
       const dayOfWeek = now.getDay();
       const monday = new Date(now);
@@ -756,16 +741,11 @@ export const AdminApp: React.FC = () => {
       startDate = toStartOfDay(monday);
       endDate = toEndOfDay(now);
       label = 'This Week';
-      previousEndDate = toEndOfDay(new Date(startDate.getTime() - 24 * 60 * 60 * 1000));
-      previousStartDate = toStartOfDay(new Date(previousEndDate.getTime() - 6 * 24 * 60 * 60 * 1000));
     } else if (analyticsDateFilter === 'month') {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       startDate = toStartOfDay(monthStart);
       endDate = toEndOfDay(now);
       label = 'This Month';
-      const previousMonthEnd = new Date(monthStart.getTime() - 24 * 60 * 60 * 1000);
-      previousEndDate = toEndOfDay(previousMonthEnd);
-      previousStartDate = toStartOfDay(new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1));
     } else if (analyticsDateFilter === 'custom') {
       if (analyticsCustomStartDate) {
         startDate = toStartOfDay(new Date(analyticsCustomStartDate));
@@ -776,29 +756,12 @@ export const AdminApp: React.FC = () => {
       label = analyticsCustomStartDate && analyticsCustomEndDate
         ? `${analyticsCustomStartDate} to ${analyticsCustomEndDate}`
         : 'Custom Range';
-      if (startDate && endDate && startDate <= endDate) {
-        const periodMs = endDate.getTime() - startDate.getTime();
-        previousEndDate = toEndOfDay(new Date(startDate.getTime() - 24 * 60 * 60 * 1000));
-        previousStartDate = toStartOfDay(new Date(previousEndDate.getTime() - periodMs));
-      }
     }
 
     return {
       startDate,
       endDate,
       label,
-      previousStartDate,
-      previousEndDate,
-      previousLabel:
-        analyticsDateFilter === 'today'
-          ? 'Yesterday'
-          : analyticsDateFilter === 'week'
-          ? 'Last Week'
-          : analyticsDateFilter === 'month'
-          ? 'Last Month'
-          : analyticsDateFilter === 'custom'
-          ? 'Prev. Range'
-          : '',
     };
   }, [analyticsDateFilter, analyticsCustomStartDate, analyticsCustomEndDate]);
 
@@ -812,37 +775,6 @@ export const AdminApp: React.FC = () => {
       }),
     [appointments, analyticsDateWindow]
   );
-
-  const analyticsComparison = useMemo(() => {
-    const { previousStartDate, previousEndDate, previousLabel } = analyticsDateWindow;
-    if (!previousStartDate || !previousEndDate || !previousLabel) {
-      return {
-        totalLabel: '',
-        totalColor: 'text-slate-600',
-        cancellationLabel: '',
-        cancellationColor: 'text-slate-600',
-      };
-    }
-
-    const previousAppointments = appointments.filter((appt) => {
-      const appointmentDate = parseAppointmentDate(appt);
-      return appointmentDate && appointmentDate >= previousStartDate && appointmentDate <= previousEndDate;
-    });
-
-    const currentTotal = analyticsAppointments.length;
-    const previousTotal = previousAppointments.length;
-    const totalDiff = previousTotal === 0 ? (currentTotal === 0 ? 0 : 100) : Math.round(((currentTotal - previousTotal) / previousTotal) * 100);
-    const currentCancellationRate = currentTotal ? (analyticsAppointments.filter((a) => a.status === 'cancelled').length / currentTotal) * 100 : 0;
-    const previousCancellationRate = previousTotal ? (previousAppointments.filter((a) => a.status === 'cancelled').length / previousTotal) * 100 : 0;
-    const cancellationDiff = Math.round(currentCancellationRate - previousCancellationRate);
-
-    return {
-      totalLabel: `${totalDiff >= 0 ? '↑' : '↓'} ${Math.abs(totalDiff)}% vs ${previousLabel}`,
-      totalColor: totalDiff >= 0 ? 'text-emerald-700' : 'text-red-600',
-      cancellationLabel: `${cancellationDiff >= 0 ? '↑' : '↓'} ${Math.abs(cancellationDiff)}% vs ${previousLabel}`,
-      cancellationColor: cancellationDiff <= 0 ? 'text-emerald-700' : 'text-red-600',
-    };
-  }, [analyticsAppointments, analyticsDateWindow, appointments]);
 
   const analyticsSummary = useMemo(() => {
     const statusCounts = {
@@ -892,7 +824,7 @@ export const AdminApp: React.FC = () => {
       if (a.preferredDate) {
         const dayName = new Date(a.preferredDate).toLocaleDateString('en-US', { weekday: 'short' });
         if (dayName) {
-          dayOfWeekCounts[dayName as keyof typeof dayOfWeekCounts] += 1;
+          dayOfWeekCounts[dayName as keyof typeof dayOfWeekCounts] = (dayOfWeekCounts[dayName as keyof typeof dayOfWeekCounts] || 0) + 1;
         }
       }
 
@@ -903,339 +835,263 @@ export const AdminApp: React.FC = () => {
       }
     });
 
-    const statusChartData = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
+    const totalCount = analyticsAppointments.length;
+    const activeCount = analyticsAppointments.filter((a) => a.isArchived !== true).length;
+    const archivedCount = analyticsAppointments.filter((a) => a.isArchived === true).length;
+
+    const statusChartData = [
+      { name: 'Pending', value: statusCounts.pending, color: '#f59e0b' },
+      { name: 'Confirmed', value: statusCounts.confirmed, color: '#0B6B4E' },
+      { name: 'Completed', value: statusCounts.completed, color: '#3b82f6' },
+      { name: 'Cancelled', value: statusCounts.cancelled, color: '#ef4444' },
+    ].filter((item) => item.value > 0);
+
     const departmentChartData = Object.entries(departmentCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([name, value]) => ({ name, value }));
+
     const doctorChartData = Object.entries(doctorCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([name, value]) => ({ name, value }));
+
     const trendData = trendDates.map((date) => ({
-      day: date,
+      day: date.slice(5),
       count: trendCounts[date] || 0,
     }));
+
     const dayOfWeekData = [
-      { name: 'Sun', value: dayOfWeekCounts.Sun },
-      { name: 'Mon', value: dayOfWeekCounts.Mon },
-      { name: 'Tue', value: dayOfWeekCounts.Tue },
-      { name: 'Wed', value: dayOfWeekCounts.Wed },
-      { name: 'Thu', value: dayOfWeekCounts.Thu },
-      { name: 'Fri', value: dayOfWeekCounts.Fri },
-      { name: 'Sat', value: dayOfWeekCounts.Sat },
+      { name: 'Sun', value: dayOfWeekCounts.Sun || 0 },
+      { name: 'Mon', value: dayOfWeekCounts.Mon || 0 },
+      { name: 'Tue', value: dayOfWeekCounts.Tue || 0 },
+      { name: 'Wed', value: dayOfWeekCounts.Wed || 0 },
+      { name: 'Thu', value: dayOfWeekCounts.Thu || 0 },
+      { name: 'Fri', value: dayOfWeekCounts.Fri || 0 },
+      { name: 'Sat', value: dayOfWeekCounts.Sat || 0 },
     ];
 
     return {
-      totalAppointments: analyticsAppointments.length,
-      activeAppointments: analyticsAppointments.filter((a) => a.isArchived !== true).length,
-      archivedAppointments: analyticsAppointments.filter((a) => a.isArchived === true).length,
+      totalAppointments: totalCount,
+      activeAppointments: activeCount,
+      archivedAppointments: archivedCount,
       confirmedAppointments: statusCounts.confirmed,
       pendingAppointments: statusCounts.pending,
       completedAppointments: statusCounts.completed,
       cancelledAppointments: statusCounts.cancelled,
-      cancelledByAdminCount: analyticsAppointments.filter((a) => a.status === 'cancelled' && a.cancelledBy === 'admin').length,
-      cancelledByPatientCount: analyticsAppointments.filter((a) => a.status === 'cancelled' && a.cancelledBy === 'patient').length,
-      cancellationRate: analyticsAppointments.length ? Math.round((statusCounts.cancelled / analyticsAppointments.length) * 100) : 0,
-      completionRate: analyticsAppointments.length ? Math.round((statusCounts.completed / analyticsAppointments.length) * 100) : 0,
+      cancellationRate: totalCount ? Math.round((statusCounts.cancelled / totalCount) * 100) : 0,
+      completionRate: totalCount ? Math.round((statusCounts.completed / totalCount) * 100) : 0,
       statusChartData,
       departmentChartData,
       doctorChartData,
       appointmentTrendData: trendData,
       dayOfWeekData,
-      archivedPieData: [
-        { name: 'Active', value: analyticsAppointments.filter((a) => a.isArchived !== true).length },
-        { name: 'Archived', value: analyticsAppointments.filter((a) => a.isArchived === true).length },
-      ],
-      statusCounts,
     };
   }, [analyticsAppointments]);
 
-  // Flexible CSV Export Handler
+  // CSV Export Handler
   const executeCSVDownload = (
     dataScope: 'current_view' | 'all' | 'today' | 'specific' | 'range',
     specificDateVal?: string,
     startDateVal?: string,
     endDateVal?: string,
-    statusFilterVal?: string
+    statusVal?: string
   ) => {
-    let listToExport = appointments;
+    let sourceList = appointments;
 
     if (dataScope === 'current_view') {
-      listToExport = filteredAppointments;
+      sourceList = filteredAppointments;
     } else if (dataScope === 'today') {
-      listToExport = appointments.filter((a) => a.preferredDate === todayStr);
+      sourceList = appointments.filter((a) => a.preferredDate === todayStr);
     } else if (dataScope === 'specific' && specificDateVal) {
-      listToExport = appointments.filter((a) => a.preferredDate === specificDateVal);
+      sourceList = appointments.filter((a) => a.preferredDate === specificDateVal);
     } else if (dataScope === 'range') {
-      listToExport = appointments.filter((a) => {
+      sourceList = appointments.filter((a) => {
         if (startDateVal && a.preferredDate < startDateVal) return false;
         if (endDateVal && a.preferredDate > endDateVal) return false;
         return true;
       });
     }
 
-    if (dataScope !== 'current_view' && statusFilterVal && statusFilterVal !== 'all') {
-      listToExport = listToExport.filter((a) => a.status === statusFilterVal);
+    if (dataScope !== 'current_view' && statusVal && statusVal !== 'all') {
+      sourceList = sourceList.filter((a) => a.status === statusVal);
     }
 
-    if (listToExport.length === 0) {
-      showToast('No appointment records found matching the selected export filter options.', 'info');
+    if (sourceList.length === 0) {
+      showToast('No appointment records found matching the selected CSV export filter criteria.', 'error');
       return;
     }
 
     const headers = [
-      'Appointment ID',
       'Patient Name',
       'Phone Number',
-      'Email',
-      'Service / Department',
-      'Assigned Doctor',
+      'Email Address',
+      'Department / Service',
+      'Doctor Name',
       'Preferred Date',
       'Preferred Time Slot',
       'Status',
-      'Notes / Reason',
-      'Created At',
+      'Booking Created At',
     ];
 
-    const rows = listToExport.map((a) => [
-      a.id,
-      a.patientName || '',
-      a.phone || '',
-      a.email || '',
-      a.service || '',
-      a.doctorName || 'Duty Specialist',
-      a.preferredDate || '',
-      a.preferredTime || '',
-      a.status || 'pending',
-      a.notes || '',
-      a.createdAt ? (typeof a.createdAt === 'string' ? a.createdAt : new Date(a.createdAt).toISOString()) : '',
+    const escapeCsv = (str?: string) => {
+      if (!str) return '""';
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
+    const rows = sourceList.map((a) => [
+      escapeCsv(a.patientName),
+      escapeCsv(a.phone),
+      escapeCsv(a.email || 'N/A'),
+      escapeCsv(a.service),
+      escapeCsv(a.doctorName || 'Duty Specialist'),
+      escapeCsv(a.preferredDate),
+      escapeCsv(a.preferredTime),
+      escapeCsv(a.status),
+      escapeCsv(a.createdAt ? new Date(a.createdAt).toLocaleString() : 'N/A'),
     ]);
 
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers, ...rows]
-        .map((row) => row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(','))
-        .join('\n');
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((row) => row.join(','))].join('\r\n');
 
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
 
-    let filenameDateStr = 'all_records';
-    if (dataScope === 'today') filenameDateStr = todayStr;
-    else if (dataScope === 'specific' && specificDateVal) filenameDateStr = specificDateVal;
-    else if (dataScope === 'range') filenameDateStr = `${startDateVal || 'start'}_to_${endDateVal || 'end'}`;
+    let fileNameSuffix = 'all_data';
+    if (dataScope === 'today') fileNameSuffix = `today_${todayStr}`;
+    else if (dataScope === 'specific') fileNameSuffix = `date_${specificDateVal || todayStr}`;
+    else if (dataScope === 'range') fileNameSuffix = `range_${startDateVal || 'start'}_to_${endDateVal || 'end'}`;
+    else if (dataScope === 'current_view') fileNameSuffix = `filtered_view_${todayStr}`;
 
-    link.setAttribute('download', `rafah_appointments_${filenameDateStr}.csv`);
+    link.href = url;
+    link.setAttribute('download', `appointments_export_${fileNameSuffix}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    showToast(`Successfully exported ${listToExport.length} appointment record(s) to CSV!`, 'success');
+    URL.revokeObjectURL(url);
+    showToast('CSV Export downloaded successfully.', 'success');
   };
 
-  const downloadAnalyticsSummary = () => {
-    const rows: string[][] = [];
-    rows.push(['Analytics Summary', analyticsDateWindow.label]);
-    rows.push(['Total Appointments', analyticsSummary.totalAppointments.toString()]);
-    rows.push(['Active Appointments', analyticsSummary.activeAppointments.toString()]);
-    rows.push(['Archived Appointments', analyticsSummary.archivedAppointments.toString()]);
-    rows.push(['Confirmed Appointments', analyticsSummary.confirmedAppointments.toString()]);
-    rows.push(['Pending Appointments', analyticsSummary.pendingAppointments.toString()]);
-    rows.push(['Completed Appointments', analyticsSummary.completedAppointments.toString()]);
-    rows.push(['Cancelled Appointments', analyticsSummary.cancelledAppointments.toString()]);
-    rows.push(['Cancellation Rate (%)', `${analyticsSummary.cancellationRate}%`]);
-    rows.push(['Cancelled by Admin', analyticsSummary.cancelledByAdminCount.toString()]);
-    rows.push(['Cancelled by Patient', analyticsSummary.cancelledByPatientCount.toString()]);
-    rows.push([]);
-    rows.push(['Top Doctors', 'Bookings']);
-    analyticsSummary.doctorChartData.forEach((item) => rows.push([item.name, item.value.toString()]));
-    rows.push([]);
-    rows.push(['Top Departments', 'Bookings']);
-    analyticsSummary.departmentChartData.forEach((item) => rows.push([item.name, item.value.toString()]));
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `analytics_summary_${analyticsDateWindow.label.replace(/\s+/g, '_')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const downloadAnalyticsPdf = () => {
-    const lines: string[] = [];
-    lines.push('====================================================');
-    lines.push('  RAFAH-E-AAM MEDICAL CENTER - ANALYTICS REPORT');
-    lines.push(`  Time Period: ${analyticsDateWindow.label}`);
-    lines.push('====================================================');
-    lines.push('');
-    lines.push(`Total Appointments: ${analyticsSummary.totalAppointments}`);
-    lines.push(`Confirmed Appointments: ${analyticsSummary.confirmedAppointments}`);
-    lines.push(`Pending Appointments: ${analyticsSummary.pendingAppointments}`);
-    lines.push(`Completed Appointments: ${analyticsSummary.completedAppointments}`);
-    lines.push(`Cancelled Appointments: ${analyticsSummary.cancelledAppointments}`);
-    lines.push(`Cancellation Rate: ${analyticsSummary.cancellationRate}%`);
-    lines.push('');
-    lines.push('----------------------------------------------------');
-    lines.push(' TOP DOCTORS BY BOOKINGS');
-    lines.push('----------------------------------------------------');
-    analyticsSummary.doctorChartData.forEach((item) => {
-      lines.push(`- ${item.name}: ${item.value} booking(s)`);
-    });
-    lines.push('');
-    lines.push('----------------------------------------------------');
-    lines.push(' TOP DEPARTMENTS BY BOOKINGS');
-    lines.push('----------------------------------------------------');
-    analyticsSummary.departmentChartData.forEach((item) => {
-      lines.push(`- ${item.name}: ${item.value} booking(s)`);
-    });
-    lines.push('');
-    lines.push('====================================================');
-    lines.push(` Generated on: ${new Date().toLocaleString()}`);
-
-    downloadTextAsPdf(`analytics_report_${analyticsDateWindow.label.replace(/\s+/g, '_')}.pdf`, lines);
-  };
+  const apptsToday = appointments.filter((a) => a.preferredDate === todayStr).length;
+  const pendingCount = appointments.filter((a) => a.status === 'pending').length;
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F1E8] flex items-center justify-center p-6 text-[#0B6B4E]">
+      <div className="min-h-screen bg-[#F5F1E8] flex items-center justify-center p-6">
         <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-[#0B6B4E] border-t-transparent rounded-full animate-spin mx-auto" />
-          <div className="text-xs font-bold">Verifying Admin Credentials...</div>
+          <div className="w-12 h-12 border-4 border-[#0B6B4E] border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="text-sm font-bold text-[#0B6B4E]">Verifying Admin Credentials...</div>
         </div>
       </div>
     );
   }
 
-  // Admin Login Screen
+  // LOGIN SCREEN
   if (!adminUser) {
     return (
-      <div className="min-h-screen bg-[#F5F1E8] flex items-center justify-center p-4 text-[#0B6B4E]">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-emerald-900/10 space-y-5">
+      <div className="min-h-screen bg-[#F5F1E8] py-12 px-4 flex items-center justify-center text-[#0B6B4E]">
+        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl max-w-md w-full border border-emerald-900/10 space-y-6">
           <div className="text-center space-y-2">
-            <div className="w-14 h-14 bg-[#0B6B4E] text-white rounded-2xl flex items-center justify-center mx-auto shadow">
-              <Building2 className="w-8 h-8" />
+            <div className="w-16 h-16 bg-[#0B6B4E] text-white rounded-full flex items-center justify-center mx-auto shadow-lg">
+              <Shield className="w-8 h-8" />
             </div>
-            <h1 className="font-heading font-extrabold text-2xl text-[#0B6B4E]">
-              Admin Panel Login
-            </h1>
-            <p className="text-xs text-emerald-900/70">
-              Rafah-E-Aam Medical Center (رفاہ عام میڈیکل سینٹر)
+            <h2 className="font-heading font-extrabold text-2xl text-[#0B6B4E]">
+              Admin Owner Portal
+            </h2>
+            <p className="text-xs sm:text-sm text-emerald-900/80">
+              Rafah-E-Aam Medical Center Administration
             </p>
           </div>
 
-          {isLockedOut ? (
-            <div className="p-4 bg-red-100 border border-red-300 rounded-xl text-red-800 text-xs font-medium space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-red-900 text-sm">
-                <ShieldAlert className="w-5 h-5 text-red-600" /> Security Lockout Active
-              </div>
-              <p className="leading-relaxed">
-                Maximum 5 consecutive failed login attempts detected. Admin access is temporarily locked for 10 minutes to protect the medical center database.
-              </p>
-              <button
-                type="button"
-                onClick={resetFailedAttempts}
-                className="mt-1 bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs cursor-pointer transition-colors shadow-sm"
-              >
-                Reset Lockout & Refresh Attempts
-              </button>
-            </div>
-          ) : (
-            failedAttempts > 0 && (
-              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs font-medium flex items-center justify-between">
-                <span className="flex items-center gap-1.5 font-bold">
-                  <ShieldAlert className="w-4 h-4 text-amber-600" /> Incorrect Attempt
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="bg-amber-200 text-amber-950 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                    {failedAttempts} / {MAX_LOGIN_ATTEMPTS} attempts
-                  </span>
-                </div>
-              </div>
-            )
-          )}
-
-          {loginError && (
-            <div className="p-3.5 bg-red-50 text-red-700 text-xs font-medium rounded-xl border border-red-200 leading-relaxed flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <span>{loginError}</span>
-            </div>
-          )}
-
           <form onSubmit={handleAdminLogin} className="space-y-4">
+            {loginError && (
+              <div className="bg-red-50 border border-red-300 p-3.5 rounded-2xl text-xs text-red-800 font-medium flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-bold mb-1">Admin Email</label>
+              <label className="block text-xs font-bold text-emerald-900 mb-1">
+                Admin Email Address
+              </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-emerald-700 absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
                 <input
                   type="email"
-                  required
-                  disabled={isLockedOut || loginSubmitting}
-                  placeholder="admin@rafahemedical.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B6B4E] disabled:opacity-50"
+                  placeholder="admin@rafahemedical.com"
+                  required
+                  disabled={isLockedOut}
+                  className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E] disabled:opacity-50"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold mb-1 flex items-center justify-between">
-                <span>Secret Security Key *</span>
-                <span className="text-[10px] text-emerald-700 font-semibold">Required for Admin Owner</span>
+              <label className="block text-xs font-bold text-emerald-900 mb-1">
+                Admin Secret Security Key
               </label>
               <div className="relative">
-                <Shield className="w-4 h-4 text-emerald-700 absolute left-3 top-3" />
+                <ShieldAlert className="w-4 h-4 text-emerald-800/50 absolute left-3 top-3" />
                 <input
                   type="password"
-                  required
-                  disabled={isLockedOut || loginSubmitting}
-                  placeholder="Enter Admin Secret Security Key"
                   value={secretKey}
                   onChange={(e) => setSecretKey(e.target.value)}
-                  className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0B6B4E] disabled:opacity-50"
+                  placeholder="Enter Secret Portal Key"
+                  required
+                  disabled={isLockedOut}
+                  className="w-full pl-9 pr-3 py-2.5 bg-[#F5F1E8]/40 border border-emerald-900/20 rounded-xl text-xs font-medium text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E] disabled:opacity-50"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isLockedOut || loginSubmitting}
-              className="w-full bg-[#D64545] hover:bg-[#c23737] disabled:bg-gray-400 text-white py-3 rounded-xl font-bold text-sm shadow cursor-pointer transition-colors disabled:cursor-not-allowed"
+              disabled={loginSubmitting || isLockedOut}
+              className="w-full bg-[#0B6B4E] hover:bg-[#08523c] text-white font-bold py-3 px-4 rounded-xl shadow transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 text-xs sm:text-sm mt-2"
             >
-              {loginSubmitting ? 'Verifying & Authenticating...' : isLockedOut ? 'Login Locked' : 'Sign In to Admin Dashboard'}
+              <Shield className="w-4 h-4" />
+              <span>{loginSubmitting ? 'Authenticating...' : 'Sign In as Admin'}</span>
             </button>
           </form>
-
-          <div className="pt-2 text-[11px] text-center text-emerald-900/60 font-medium flex items-center justify-center gap-1.5 border-t border-emerald-900/10">
-            <Shield className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-            <span>Protected by Admin Secret Key & 5-Attempt Security Lockout</span>
-          </div>
         </div>
       </div>
     );
   }
 
-  const apptsToday = appointments.filter((a) => a.preferredDate === todayStr).length;
-  const pendingCount = appointments.filter((a) => a.status === 'pending').length;
-
   return (
-    <div className="min-h-screen bg-[#F5F1E8] text-[#0B6B4E] pb-20 font-sans">
-      <div className="bg-[#0B6B4E] text-white py-4 px-4 sm:px-8 shadow-md">
+    <div className="min-h-screen bg-[#F5F1E8] text-[#0B6B4E] pb-20">
+      <Toast toast={toast} onClose={() => setToast(null)} />
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmLabel={confirmModal.confirmLabel}
+        cancelLabel={confirmModal.cancelLabel}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onClose={closeConfirmModal}
+        isLoading={confirmModal.isLoading}
+      />
+
+      {/* Admin Top Banner */}
+      <div className="bg-[#0B6B4E] text-white py-6 px-4 sm:px-6 lg:px-8 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white text-[#0B6B4E] rounded-xl flex items-center justify-center font-bold">
-              <Building2 className="w-6 h-6" />
+            <div className="p-3 bg-emerald-800/80 rounded-2xl border border-emerald-600/50">
+              <Building2 className="w-6 h-6 text-emerald-200" />
             </div>
             <div>
-              <h1 className="font-heading font-extrabold text-lg text-white">
-                Rafah-E-Aam Medical Center — Admin Panel
+              <h1 className="font-heading font-extrabold text-xl sm:text-2xl text-white flex items-center gap-2">
+                Rafah-E-Aam Medical Center
+                <span className="text-xs font-bold bg-amber-400 text-amber-950 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                  Admin Panel
+                </span>
               </h1>
-              <p className="text-xs text-emerald-200">
-                Logged in as: {adminUser.email}
+              <p className="text-xs text-emerald-100 mt-0.5">
+                Logged in as: <span className="font-semibold">{adminUser.email}</span>
               </p>
             </div>
           </div>
@@ -1243,15 +1099,14 @@ export const AdminApp: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={seedDemoData}
-              className="bg-emerald-800 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-600 flex items-center gap-1.5 cursor-pointer"
+              className="bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 hover:text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-emerald-600 cursor-pointer"
             >
               <Database className="w-3.5 h-3.5" />
-              <span>Seed Initial Data</span>
+              <span>Seed Demo Data</span>
             </button>
-
             <button
-              onClick={() => signOut(auth)}
-              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              onClick={handleAdminLogout}
+              className="bg-red-800/80 hover:bg-red-800 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-red-600 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Logout</span>
@@ -1260,329 +1115,819 @@ export const AdminApp: React.FC = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-8 mt-6 space-y-6">
-        {seedSuccessMsg && (
-          <div className="p-3 bg-emerald-100 text-[#0B6B4E] text-xs font-bold rounded-xl border border-emerald-300">
-            {seedSuccessMsg}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-900/10 flex items-center gap-3">
-            <div className="p-3 bg-emerald-100 text-[#0B6B4E] rounded-xl">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold font-heading">{apptsToday}</div>
-              <div className="text-xs text-emerald-800/70">Appointments Today</div>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-900/10 flex items-center gap-3">
-            <div className="p-3 bg-amber-100 text-amber-800 rounded-xl">
-              <Clock className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold font-heading">{pendingCount}</div>
-              <div className="text-xs text-emerald-800/70">Pending Triage</div>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-900/10 flex items-center gap-3">
-            <div className="p-3 bg-blue-100 text-blue-800 rounded-xl">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold font-heading">{patients.length}</div>
-              <div className="text-xs text-emerald-800/70">Registered Patients</div>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-900/10 flex items-center gap-3">
-            <div className="p-3 bg-purple-100 text-purple-800 rounded-xl">
-              <Stethoscope className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold font-heading">{doctors.length}</div>
-              <div className="text-xs text-emerald-800/70">Specialist Doctors</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-emerald-900/10 flex flex-wrap gap-1">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+        {/* Navigation Tabs */}
+        <div className="bg-white p-2 rounded-2xl shadow-xs border border-emerald-900/10 flex flex-wrap gap-1">
           <button
             onClick={() => setActiveTab('appointments')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'appointments' ? 'bg-[#0B6B4E] text-white' : 'text-emerald-900 hover:bg-[#F5F1E8]'
+            className={`flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'appointments'
+                ? 'bg-[#0B6B4E] text-white shadow-xs'
+                : 'text-emerald-900 hover:bg-[#F5F1E8]'
             }`}
           >
-            Appointments ({appointments.length})
+            <Calendar className="w-4 h-4" />
+            <span>Appointments ({appointments.length})</span>
+            {pendingCount > 0 && (
+              <span className="bg-amber-400 text-amber-950 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                {pendingCount}
+              </span>
+            )}
           </button>
+
           <button
             onClick={() => setActiveTab('doctors')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'doctors' ? 'bg-[#0B6B4E] text-white' : 'text-emerald-900 hover:bg-[#F5F1E8]'
+            className={`flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'doctors'
+                ? 'bg-[#0B6B4E] text-white shadow-xs'
+                : 'text-emerald-900 hover:bg-[#F5F1E8]'
             }`}
           >
-            Manage Doctors ({doctors.length})
+            <Stethoscope className="w-4 h-4" />
+            <span>Doctors ({doctors.length})</span>
           </button>
+
           <button
             onClick={() => setActiveTab('reviews')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'reviews' ? 'bg-[#0B6B4E] text-white' : 'text-emerald-900 hover:bg-[#F5F1E8]'
+            className={`flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'reviews'
+                ? 'bg-[#0B6B4E] text-white shadow-xs'
+                : 'text-emerald-900 hover:bg-[#F5F1E8]'
             }`}
           >
-            Reviews & Testimonials ({reviews.length})
+            <Star className="w-4 h-4" />
+            <span>Patient Reviews ({reviews.length})</span>
           </button>
+
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'analytics' ? 'bg-[#0B6B4E] text-white' : 'text-emerald-900 hover:bg-[#F5F1E8]'
+            className={`flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+              activeTab === 'analytics'
+                ? 'bg-[#0B6B4E] text-white shadow-xs'
+                : 'text-emerald-900 hover:bg-[#F5F1E8]'
             }`}
           >
-            Analytics & Reports
+            <BarChart2 className="w-4 h-4" />
+            <span>Analytics & Reports</span>
           </button>
         </div>
 
+        {/* TAB 1: APPOINTMENTS */}
         {activeTab === 'appointments' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-4">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-heading font-bold text-lg text-[#0B6B4E]">Patient Appointments List</h2>
-                <p className="text-xs text-emerald-800/70">
-                  Showing {filteredAppointments.length} of {appointments.length} total records
-                </p>
-              </div>
+          <div className="space-y-4">
+            <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-xs border border-emerald-900/10 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <h2 className="font-heading font-bold text-lg sm:text-xl text-[#0B6B4E]">
+                  Appointment Bookings Management
+                </h2>
 
-              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <div className="relative flex-1 min-w-[160px] sm:flex-initial">
-                  <Search className="w-3.5 h-3.5 text-emerald-700 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    placeholder="Search patient / phone / service..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-[#F5F1E8] text-xs border border-emerald-900/20 rounded-xl pl-8 pr-3 py-2 w-full focus:outline-none text-[#0B6B4E] font-medium"
-                  />
-                </div>
-
-                <select
-                  value={apptStatusFilter}
-                  onChange={(e) => setApptStatusFilter(e.target.value)}
-                  className="bg-[#F5F1E8] text-xs border border-emerald-900/20 rounded-xl px-3 py-2 font-bold text-[#0B6B4E] cursor-pointer"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="confirmed">Confirmed</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-
-                <button
-                  onClick={() => {
-                    setExportScope('current_view');
-                    setShowExportModal(true);
-                  }}
-                  className="bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
-                  <span>Export CSV</span>
-                </button>
-              </div>
-            </div>
-
-            {filteredAppointments.length === 0 ? (
-              <div className="text-center py-8 text-xs text-emerald-800">No appointments found.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-emerald-950">
-                  <thead className="bg-[#F5F1E8] text-[#0B6B4E] font-bold uppercase text-[10px]">
-                    <tr>
-                      <th className="p-3 rounded-l-xl">Patient</th>
-                      <th className="p-3">Service & Doctor</th>
-                      <th className="p-3">Date & Time</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3 rounded-r-xl">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-emerald-900/10">
-                    {filteredAppointments.map((a) => (
-                      <tr key={a.id} className="hover:bg-emerald-50/50 transition-colors">
-                        <td className="p-3 font-semibold">
-                          <div>{a.patientName}</div>
-                          <div className="text-[10px] text-emerald-800">{a.phone}</div>
-                        </td>
-                        <td className="p-3">
-                          <div className="font-bold">{a.service}</div>
-                          <div className="text-[10px] text-emerald-800">{a.doctorName || 'Duty Specialist'}</div>
-                        </td>
-                        <td className="p-3">
-                          <div className="font-bold">{a.preferredDate}</div>
-                          <div className="text-[10px] text-emerald-800">{a.preferredTime}</div>
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              a.status === 'confirmed'
-                                ? 'bg-emerald-100 text-[#0B6B4E]'
-                                : a.status === 'completed'
-                                ? 'bg-blue-100 text-blue-800'
-                                : a.status === 'cancelled'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {a.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <select
-                            value={a.status}
-                            onChange={(e) => handleUpdateApptStatus(a.id, e.target.value as AppointmentStatus)}
-                            className="bg-[#F5F1E8] border border-emerald-900/20 rounded-lg text-xs font-bold py-1 px-2 focus:outline-none cursor-pointer"
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="confirmed">Confirm</option>
-                            <option value="completed">Complete</option>
-                            <option value="cancelled">Cancel</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'analytics' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-6">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-heading font-bold text-lg text-[#0B6B4E]">Appointment Analytics & Reports</h2>
-                <p className="text-xs text-emerald-800/70">
-                  Full analytics across all appointments, including trend distributions and doctor workloads.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={downloadAnalyticsSummary}
-                  className="bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer transition-colors"
-                >
-                  <Download className="w-4 h-4" /> Export CSV
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Total Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.totalAppointments}</div>
-              </div>
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Confirmed Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.confirmedAppointments}</div>
-              </div>
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Pending Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.pendingAppointments}</div>
-              </div>
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Completed Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-emerald-700">{analyticsSummary.completedAppointments}</div>
-              </div>
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Active Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.activeAppointments}</div>
-              </div>
-              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
-                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Archived Appointments</div>
-                <div className="mt-3 text-3xl font-heading font-bold text-slate-600">{analyticsSummary.archivedAppointments}</div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <div className="bg-[#F5F1E8] p-4 rounded-3xl border border-emerald-900/10">
-                <h3 className="font-bold text-sm text-[#0B6B4E] mb-3">Status Distribution</h3>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analyticsSummary.statusChartData} margin={{ top: 10, right: 10, left: -10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(value: number) => [`${value}`, 'Appointments']} />
-                      <Bar dataKey="value" fill="#0B6B4E" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setShowExportModal(true)}
+                    className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Download className="w-4 h-4" /> Export CSV Data
+                  </button>
+                  {selectedApptIds.length > 0 && (
+                    <button
+                      onClick={handleDeleteSelectedAppts}
+                      disabled={deletingAppts}
+                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" /> Archive Selected ({selectedApptIds.length})
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="bg-[#F5F1E8] p-4 rounded-3xl border border-emerald-900/10">
-                <h3 className="font-bold text-sm text-[#0B6B4E] mb-3">Bookings by Day of Week</h3>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analyticsSummary.dayOfWeekData} margin={{ top: 10, right: 10, left: -10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                      <Tooltip formatter={(value: number) => [`${value}`, 'Bookings']} />
-                      <Bar dataKey="value" fill="#2563EB" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              {/* Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-emerald-900/10">
+                <div>
+                  <label className="block text-[11px] font-bold text-emerald-900 mb-1">Search Patient / Doctor</label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-emerald-800/50 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Name, Phone, Service..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    />
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeTab === 'doctors' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-4">
-            <h2 className="font-heading font-bold text-lg">Hospital Doctors Roster</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {doctors.map((d) => (
-                <div key={d.id} className="p-4 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 space-y-2">
-                  <div className="font-bold text-sm text-[#0B6B4E]">{d.name}</div>
-                  <div className="text-xs text-[#D64545] font-semibold">{d.specialty}</div>
-                  <div className="text-xs text-emerald-800">{d.timing}</div>
+                <div>
+                  <label className="block text-[11px] font-bold text-emerald-900 mb-1">Status Filter</label>
+                  <select
+                    value={apptStatusFilter}
+                    onChange={(e) => setApptStatusFilter(e.target.value)}
+                    className="w-full py-1.5 px-2.5 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {activeTab === 'reviews' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-4">
-            <h2 className="font-heading font-bold text-lg">Patient Reviews & Moderation</h2>
-            <div className="space-y-3">
-              {reviews.map((r) => (
-                <div key={r.id} className="p-4 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 flex items-center justify-between">
+                <div>
+                  <label className="block text-[11px] font-bold text-emerald-900 mb-1">Date Filter Mode</label>
+                  <select
+                    value={apptDateFilterMode}
+                    onChange={(e) => setApptDateFilterMode(e.target.value as any)}
+                    className="w-full py-1.5 px-2.5 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  >
+                    <option value="all">All Dates</option>
+                    <option value="today">Today ({todayStr})</option>
+                    <option value="specific">Specific Date</option>
+                    <option value="range">Date Range</option>
+                  </select>
+                </div>
+
+                {apptDateFilterMode === 'specific' && (
                   <div>
-                    <div className="font-bold text-sm text-[#0B6B4E]">{r.patientName} — {r.rating}★</div>
-                    <div className="text-xs text-emerald-900 italic">"{r.comment}"</div>
+                    <label className="block text-[11px] font-bold text-emerald-900 mb-1">Select Date</label>
+                    <input
+                      type="date"
+                      value={apptSpecificDate}
+                      onChange={(e) => setApptSpecificDate(e.target.value)}
+                      className="w-full py-1.5 px-2.5 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                    />
+                  </div>
+                )}
+
+                {apptDateFilterMode === 'range' && (
+                  <div className="flex gap-2 col-span-1 sm:col-span-2 lg:col-span-1">
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Start Date</label>
+                      <input
+                        type="date"
+                        value={apptStartDate}
+                        onChange={(e) => setApptStartDate(e.target.value)}
+                        className="w-full py-1.5 px-2 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E]"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">End Date</label>
+                      <input
+                        type="date"
+                        value={apptEndDate}
+                        onChange={(e) => setApptEndDate(e.target.value)}
+                        className="w-full py-1.5 px-2 bg-[#F5F1E8]/50 border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Appointments Table */}
+            <div className="bg-white rounded-2xl shadow-xs border border-emerald-900/10 overflow-hidden">
+              {filteredAppointments.length === 0 ? (
+                <div className="p-12 text-center text-emerald-900/60 font-medium">
+                  <Calendar className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p>No appointments match the selected filter criteria.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-[#0B6B4E]">
+                    <thead className="bg-[#0B6B4E] text-white text-[11px] font-bold uppercase tracking-wider">
+                      <tr>
+                        <th className="p-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredAppointments.length > 0 &&
+                              filteredAppointments.every((a) => selectedApptIds.includes(a.id))
+                            }
+                            onChange={() => handleSelectAllAppts(filteredAppointments)}
+                            className="rounded text-[#0B6B4E] focus:ring-[#0B6B4E]"
+                          />
+                        </th>
+                        <th className="p-3">Patient</th>
+                        <th className="p-3">Contact</th>
+                        <th className="p-3">Department / Doctor</th>
+                        <th className="p-3">Date & Time Slot</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-emerald-900/10">
+                      {filteredAppointments.map((appt) => {
+                        const isSelected = selectedApptIds.includes(appt.id);
+                        return (
+                          <tr key={appt.id} className={`hover:bg-[#F5F1E8]/40 transition-colors ${isSelected ? 'bg-emerald-50/60' : ''}`}>
+                            <td className="p-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectAppt(appt.id)}
+                                className="rounded text-[#0B6B4E] focus:ring-[#0B6B4E]"
+                              />
+                            </td>
+                            <td className="p-3 font-bold text-emerald-950">
+                              <div>{appt.patientName}</div>
+                              {appt.email && <div className="text-[10px] text-emerald-800/70 font-normal">{appt.email}</div>}
+                            </td>
+                            <td className="p-3 font-medium">
+                              <div>{appt.phone}</div>
+                            </td>
+                            <td className="p-3">
+                              <div className="font-semibold text-emerald-900">{appt.service}</div>
+                              <div className="text-[11px] text-emerald-800/80">{appt.doctorName || 'Duty Doctor'}</div>
+                            </td>
+                            <td className="p-3">
+                              <div className="font-bold text-[#0B6B4E]">{appt.preferredDate}</div>
+                              <div className="text-[10px] text-emerald-800/70">{appt.preferredTime || 'Morning Slot'}</div>
+                            </td>
+                            <td className="p-3">
+                              <select
+                                value={appt.status}
+                                onChange={(e) => handleUpdateApptStatus(appt.id, e.target.value as AppointmentStatus)}
+                                className={`text-xs font-bold rounded-lg px-2 py-1 border focus:outline-none cursor-pointer ${
+                                  appt.status === 'confirmed'
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                    : appt.status === 'completed'
+                                    ? 'bg-blue-100 text-blue-900 border-blue-300'
+                                    : appt.status === 'cancelled'
+                                    ? 'bg-red-100 text-red-900 border-red-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="confirmed">Confirmed</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                onClick={() => handleDeleteSingleAppt(appt.id, appt.patientName)}
+                                className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                title="Archive / Delete Appointment"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DOCTORS */}
+        {activeTab === 'doctors' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-heading font-bold text-xl text-[#0B6B4E]">
+                Doctor Directory Management
+              </h2>
+              <button
+                onClick={() => {
+                  setEditingDoctor(null);
+                  setDocName('');
+                  setDocSpecialty('');
+                  setDocTiming('');
+                  setDocPhoto('');
+                  setDocBio('');
+                  setDocDays('');
+                  setDocRoom('');
+                  setDoctorModalOpen(true);
+                }}
+                className="bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Add New Doctor
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {doctors.map((docItem) => {
+                const isAvail = docItem.isAvailable !== false;
+                return (
+                  <div key={docItem.id} className="bg-white rounded-2xl p-4 shadow-xs border border-emerald-900/10 flex flex-col justify-between space-y-3">
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={docItem.photoURL || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'}
+                        alt={docItem.name}
+                        className="w-16 h-16 rounded-xl object-cover border border-emerald-900/10"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <h3 className="font-bold text-sm text-[#0B6B4E] truncate">{docItem.name}</h3>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isAvail ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                            {isAvail ? 'Available' : 'On Leave'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-emerald-900/80 font-medium">{docItem.specialty}</p>
+                        {docItem.timing && <p className="text-[11px] text-emerald-800/60 mt-1">{docItem.timing}</p>}
+                        {docItem.roomNumber && <p className="text-[11px] text-emerald-800/60">Room: {docItem.roomNumber}</p>}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-emerald-900/10 flex items-center justify-between">
+                      <button
+                        onClick={() => handleToggleDoctorAvailability(docItem.id, isAvail, docItem.name)}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                          isAvail ? 'bg-amber-100 text-amber-900 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
+                        }`}
+                      >
+                        {isAvail ? 'Mark On Leave' : 'Mark Available'}
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingDoctor(docItem);
+                            setDocName(docItem.name);
+                            setDocSpecialty(docItem.specialty);
+                            setDocTiming(docItem.timing || '');
+                            setDocPhoto(docItem.photoURL || '');
+                            setDocBio(docItem.bio || '');
+                            setDocDays(Array.isArray(docItem.availableDays) ? docItem.availableDays.join(', ') : docItem.availableDays || '');
+                            setDocRoom(docItem.roomNumber || '');
+                            setDoctorModalOpen(true);
+                          }}
+                          className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded-lg cursor-pointer"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteDoctor(docItem.id, docItem.name)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: REVIEWS */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-4">
+            <h2 className="font-heading font-bold text-xl text-[#0B6B4E]">
+              Patient Testimonial Reviews
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {reviews.map((rev) => (
+                <div key={rev.id} className="bg-white rounded-2xl p-4 shadow-xs border border-emerald-900/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm text-[#0B6B4E]">{rev.patientName}</h3>
+                      <div className="flex items-center gap-1 text-amber-400 mt-0.5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} className={`w-3.5 h-3.5 ${i < rev.rating ? 'fill-amber-400' : 'text-gray-300'}`} />
+                        ))}
+                      </div>
+                    </div>
+
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${rev.approved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                      {rev.approved ? 'Approved' : 'Pending Approval'}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-emerald-950/80 italic bg-[#F5F1E8]/30 p-2.5 rounded-xl border border-emerald-900/5">
+                    "{rev.comment}"
+                  </p>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    {!rev.approved && (
+                      <button
+                        onClick={() => handleApproveReview(rev.id)}
+                        className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Approve
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteReview(rev.id, rev.patientName)}
+                      className="bg-red-100 text-red-700 hover:bg-red-200 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* TAB 4: ANALYTICS & REPORTS */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-xs border border-emerald-900/10 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-heading font-bold text-lg sm:text-xl text-[#0B6B4E]">
+                    Appointment Analytics & Intelligence
+                  </h2>
+                  <p className="text-xs text-emerald-900/70 mt-0.5">
+                    Timeframe: <span className="font-bold text-[#0B6B4E]">{analyticsDateWindow.label}</span>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={analyticsDateFilter}
+                    onChange={(e) => setAnalyticsDateFilter(e.target.value as any)}
+                    className="py-2 px-3 bg-[#F5F1E8] border border-emerald-900/20 rounded-xl text-xs font-bold text-[#0B6B4E] focus:outline-none focus:ring-2 focus:ring-[#0B6B4E]"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+
+                  <button
+                    onClick={() => executeCSVDownload('current_view')}
+                    className="bg-[#0B6B4E] hover:bg-[#08523c] text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Download className="w-4 h-4" /> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              {analyticsDateFilter === 'custom' && (
+                <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-emerald-900/10 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">Start Date</label>
+                    <input
+                      type="date"
+                      value={analyticsCustomStartDate}
+                      onChange={(e) => setAnalyticsCustomStartDate(e.target.value)}
+                      className="py-1.5 px-2 bg-[#F5F1E8] border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-emerald-900 mb-0.5">End Date</label>
+                    <input
+                      type="date"
+                      value={analyticsCustomEndDate}
+                      onChange={(e) => setAnalyticsCustomEndDate(e.target.value)}
+                      className="py-1.5 px-2 bg-[#F5F1E8] border border-emerald-900/20 rounded-xl text-xs text-[#0B6B4E]"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* STAT CARDS ROW */}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Total Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.totalAppointments}</div>
+              </div>
+
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Confirmed Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.confirmedAppointments}</div>
+              </div>
+
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Pending Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-amber-600">{analyticsSummary.pendingAppointments}</div>
+              </div>
+
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Completed Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-blue-600">{analyticsSummary.completedAppointments}</div>
+              </div>
+
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Active Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-[#0B6B4E]">{analyticsSummary.activeAppointments}</div>
+              </div>
+
+              <div className="bg-[#F5F1E8] p-4 rounded-2xl border border-emerald-900/10">
+                <div className="text-xs uppercase tracking-[0.15em] text-emerald-900/70 font-bold">Archived Appointments</div>
+                <div className="mt-3 text-3xl font-heading font-bold text-slate-600">{analyticsSummary.archivedAppointments}</div>
+              </div>
+            </div>
+
+            {/* CHARTS GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Chart 1: Trend Line */}
+              <div className="bg-white p-5 rounded-2xl shadow-xs border border-emerald-900/10">
+                <h3 className="font-bold text-sm text-[#0B6B4E] mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-[#0B6B4E]" />
+                  Booking Volume Trend (Last 30 Days)
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={analyticsSummary.appointmentTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="count" stroke="#0B6B4E" strokeWidth={2.5} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 2: Status Breakdown Pie */}
+              <div className="bg-white p-5 rounded-2xl shadow-xs border border-emerald-900/10">
+                <h3 className="font-bold text-sm text-[#0B6B4E] mb-4 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-[#0B6B4E]" />
+                  Status Distribution Breakdown
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={analyticsSummary.statusChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      >
+                        {analyticsSummary.statusChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 3: Top Doctors */}
+              <div className="bg-white p-5 rounded-2xl shadow-xs border border-emerald-900/10">
+                <h3 className="font-bold text-sm text-[#0B6B4E] mb-4 flex items-center gap-2">
+                  <Stethoscope className="w-4 h-4 text-[#0B6B4E]" />
+                  Top Doctors by Bookings
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analyticsSummary.doctorChartData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                      <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#0B6B4E" radius={[0, 8, 8, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 4: Top Departments */}
+              <div className="bg-white p-5 rounded-2xl shadow-xs border border-emerald-900/10">
+                <h3 className="font-bold text-sm text-[#0B6B4E] mb-4 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-[#0B6B4E]" />
+                  Top Departments / Services
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analyticsSummary.departmentChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        confirmLabel={confirmModal.confirmLabel}
-        variant={confirmModal.variant}
-        isLoading={confirmModal.isLoading}
-        onConfirm={confirmModal.onConfirm}
-        onClose={closeConfirmModal}
-      />
+      {/* DOCTOR MODAL */}
+      {doctorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl border border-emerald-900/10 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-heading font-bold text-lg text-[#0B6B4E]">
+                {editingDoctor ? 'Edit Doctor Info' : 'Add New Doctor'}
+              </h3>
+              <button onClick={() => setDoctorModalOpen(false)} className="p-1 text-gray-500 hover:text-black">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      <Toast toast={toast} onClose={() => setToast(null)} />
+            <form onSubmit={handleSaveDoctor} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Doctor Name *</label>
+                <input
+                  type="text"
+                  value={docName}
+                  onChange={(e) => setDocName(e.target.value)}
+                  placeholder="e.g. Dr. Wajid Ali"
+                  required
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Specialty / Designation *</label>
+                <input
+                  type="text"
+                  value={docSpecialty}
+                  onChange={(e) => setDocSpecialty(e.target.value)}
+                  placeholder="e.g. Consultant Cardiologist"
+                  required
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Timings</label>
+                <input
+                  type="text"
+                  value={docTiming}
+                  onChange={(e) => setDocTiming(e.target.value)}
+                  placeholder="e.g. 5:00 PM - 9:00 PM"
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Photo Image URL</label>
+                <input
+                  type="url"
+                  value={docPhoto}
+                  onChange={(e) => setDocPhoto(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Available Days</label>
+                <input
+                  type="text"
+                  value={docDays}
+                  onChange={(e) => setDocDays(e.target.value)}
+                  placeholder="e.g. Mon, Wed, Fri"
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Room Number</label>
+                <input
+                  type="text"
+                  value={docRoom}
+                  onChange={(e) => setDocRoom(e.target.value)}
+                  placeholder="e.g. OPD Room 4"
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Doctor Bio / Profile</label>
+                <textarea
+                  value={docBio}
+                  onChange={(e) => setDocBio(e.target.value)}
+                  rows={3}
+                  placeholder="Qualifications and clinical experience..."
+                  className="w-full p-2.5 bg-[#F5F1E8]/40 border rounded-xl"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDoctorModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border text-gray-700 font-bold hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0B6B4E] text-white font-bold hover:bg-[#08523c]"
+                >
+                  Save Doctor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV EXPORT MODAL */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-emerald-900/10">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-heading font-bold text-base text-[#0B6B4E] flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5" /> Export Appointments CSV
+              </h3>
+              <button onClick={() => setShowExportModal(false)} className="p-1 text-gray-500 hover:text-black">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-emerald-900 mb-1">Export Data Scope</label>
+                <select
+                  value={exportScope}
+                  onChange={(e) => setExportScope(e.target.value as any)}
+                  className="w-full p-2 bg-[#F5F1E8]/50 border rounded-xl text-xs font-bold"
+                >
+                  <option value="current_view">Current Filtered View ({filteredAppointments.length} items)</option>
+                  <option value="all">All Records ({appointments.length} items)</option>
+                  <option value="today">Today's Appointments ({appointments.filter(a=>a.preferredDate===todayStr).length} items)</option>
+                  <option value="specific">Specific Date</option>
+                  <option value="range">Date Range</option>
+                </select>
+              </div>
+
+              {exportScope === 'specific' && (
+                <div>
+                  <label className="block font-bold text-emerald-900 mb-1">Select Date</label>
+                  <input
+                    type="date"
+                    value={exportSpecificDate}
+                    onChange={(e) => setExportSpecificDate(e.target.value)}
+                    className="w-full p-2 bg-[#F5F1E8]/50 border rounded-xl"
+                  />
+                </div>
+              )}
+
+              {exportScope === 'range' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-bold text-emerald-900 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="w-full p-2 bg-[#F5F1E8]/50 border rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-emerald-900 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="w-full p-2 bg-[#F5F1E8]/50 border rounded-xl"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {exportScope !== 'current_view' && (
+                <div>
+                  <label className="block font-bold text-emerald-900 mb-1">Filter by Status</label>
+                  <select
+                    value={exportStatusFilter}
+                    onChange={(e) => setExportStatusFilter(e.target.value)}
+                    className="w-full p-2 bg-[#F5F1E8]/50 border rounded-xl"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending Only</option>
+                    <option value="confirmed">Confirmed Only</option>
+                    <option value="completed">Completed Only</option>
+                    <option value="cancelled">Cancelled Only</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="px-4 py-2 rounded-xl border text-gray-700 font-bold hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    executeCSVDownload(
+                      exportScope,
+                      exportSpecificDate,
+                      exportStartDate,
+                      exportEndDate,
+                      exportStatusFilter
+                    );
+                    setShowExportModal(false);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-[#0B6B4E] text-white font-bold hover:bg-[#08523c] flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" /> Download CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-export default AdminApp;
