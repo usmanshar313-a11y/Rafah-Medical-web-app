@@ -34,14 +34,12 @@ import {
 import { db, auth } from '../firebase';
 import { signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
-import { useLanguage } from '../context/LanguageContext';
 import { Appointment, AppointmentStatus } from '../types';
 import { Toast, ToastMessage } from '../components/common/Toast';
 
 export const PortalPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, patientProfile, loading, signUpWithEmail, signInWithEmail, updatePatientProfile, logout } = useAuth();
-  const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'profile'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);

@@ -18,7 +18,6 @@ import {
 import { collection, addDoc, getDocs } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
 import { Doctor, Service } from '../../types';
 import { ALL_DOCTORS, DEFAULT_SERVICES } from '../../data/departmentsData';
 
@@ -37,7 +36,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, patientProfile } = useAuth();
-  const { t } = useLanguage();
 
   const [doctors, setDoctors] = useState<Doctor[]>(ALL_DOCTORS);
   const [services, setServices] = useState<Service[]>(DEFAULT_SERVICES);
@@ -299,7 +297,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-red-300" />
             <h2 className="font-heading font-bold text-base sm:text-lg">
-              {t.bookAppointment} — Rafah-E-Aam
+              Book Appointment — Rafah-E-Aam
             </h2>
           </div>
           <button
@@ -336,7 +334,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   className="w-full sm:w-auto bg-[#25D366] hover:bg-[#20ba5a] text-white font-bold px-5 py-3 rounded-xl shadow flex items-center justify-center gap-2 text-sm"
                 >
                   <MessageSquare className="w-4 h-4" />
-                  {t.whatsappConfirm}
+                  Confirm via WhatsApp
                 </a>
 
                 <button
@@ -427,7 +425,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                    {t.fullName} *
+                    Full Name *
                   </label>
                   <div className="relative">
                     <User className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 absolute left-3 top-3.5" />
@@ -444,7 +442,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                    {t.phoneNumber} *
+                    Phone Number *
                   </label>
                   <div className="relative">
                     <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 absolute left-3 top-3.5" />
@@ -472,7 +470,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                    {t.emailAddress}
+                    Email Address
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 absolute left-3 top-3.5" />
@@ -537,7 +535,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               {/* Service / Department */}
               <div>
                 <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                  {t.selectService} *
+                  Select Department / Care *
                 </label>
                 <div className="relative">
                   <Stethoscope className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700 absolute left-3 top-3.5" />
@@ -560,7 +558,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                    {t.selectDoctor}
+                    Select Doctor (Optional)
                   </label>
                   <select
                     value={doctorId}
@@ -578,7 +576,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#0B6B4E] mb-1.5">
-                    {t.preferredDate} *
+                    Preferred Date *
                   </label>
                   <input
                     type="date"
@@ -594,7 +592,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               {/* Reason */}
               <div>
                 <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
-                  {t.reasonVisit}
+                  Reason for Visit / Symptoms
                 </label>
                 <textarea
                   rows={2}
@@ -636,7 +634,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 ) : (
                   <>
                     <Calendar className="w-4 h-4" />
-                    <span>{t.confirmBooking}</span>
+                    <span>Confirm Appointment</span>
                   </>
                 )}
               </button>

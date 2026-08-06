@@ -8,7 +8,6 @@ import {
   Clock,
   ShieldCheck
 } from 'lucide-react';
-import { useLanguage } from '../../context/LanguageContext';
 // HERO BACKGROUND IMAGE CONFIGURATION
 // To manually change the background image:
 // Option 1: Update the import statement below to point to a new image file in your src/assets folder
@@ -22,7 +21,6 @@ interface HeroProps {
 }
 
 export const Hero: React.FC<HeroProps> = () => {
-  const { t } = useLanguage();
   const navigate = useNavigate();
 
   return (
@@ -71,7 +69,7 @@ export const Hero: React.FC<HeroProps> = () => {
               className="w-full sm:w-auto bg-[#D64545] hover:bg-[#c23737] text-white px-8 py-3.5 rounded-full text-base font-bold shadow-xl shadow-black/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Calendar className="w-5 h-5" />
-              <span>{t.bookAppointment}</span>
+              <span>Book Appointment</span>
             </button>
 
             <a
@@ -79,7 +77,7 @@ export const Hero: React.FC<HeroProps> = () => {
               className="w-full sm:w-auto bg-white hover:bg-emerald-50 text-[#0B6B4E] px-7 py-3.5 rounded-full text-base font-bold shadow-md hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
             >
               <Phone className="w-5 h-5 text-[#D64545]" />
-              <span>{t.callNow}</span>
+              <span>Call Now: +92 21 36342011</span>
             </a>
           </div>
 

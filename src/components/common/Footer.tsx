@@ -10,11 +10,8 @@ import {
   ShieldCheck, 
   HeartPulse 
 } from 'lucide-react';
-import { useLanguage } from '../../context/LanguageContext';
 
 export const Footer: React.FC = () => {
-  const { t } = useLanguage();
-
   return (
     <footer className="bg-[#0B6B4E] text-white pt-12 pb-8 border-t border-emerald-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -35,18 +32,18 @@ export const Footer: React.FC = () => {
             </div>
 
             <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-              {t.heroSubheading}
+              Providing compassionate healthcare & modern medical facilities in Karachi
             </p>
 
             {/* Badges */}
             <div className="flex flex-wrap gap-2 pt-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-800/80 text-xs font-medium text-emerald-100 border border-emerald-700">
                 <Accessibility className="w-3.5 h-3.5 text-emerald-300" />
-                {t.accessibility}
+                Wheelchair & Stretcher Accessible
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-800/80 text-xs font-medium text-emerald-100 border border-emerald-700">
                 <Clock className="w-3.5 h-3.5 text-emerald-300" />
-                {t.open247}
+                24/7 Emergency Ward
               </span>
             </div>
 
@@ -56,7 +53,7 @@ export const Footer: React.FC = () => {
                 <div className="flex items-center gap-1 text-amber-300 text-sm font-bold">
                   <Star className="w-4 h-4 fill-amber-300" /> 3.8 / 5.0
                 </div>
-                <div className="text-xs text-emerald-200">{t.trustedBy}</div>
+                <div className="text-xs text-emerald-200">Trusted by over 50,000+ patients across Karachi</div>
               </div>
               <a
                 href="https://www.google.com/maps?q=Rafah-E-Aam+Medical+Center+Karachi"

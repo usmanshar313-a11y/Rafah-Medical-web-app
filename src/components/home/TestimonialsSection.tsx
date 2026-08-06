@@ -4,7 +4,6 @@ import { Star, MessageSquarePlus, CheckCircle2, X } from 'lucide-react';
 import { collection, getDocs, addDoc, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { Review } from '../../types';
-import { useLanguage } from '../../context/LanguageContext';
 
 const SAMPLE_REVIEWS: Review[] = [
   {
@@ -34,7 +33,6 @@ const SAMPLE_REVIEWS: Review[] = [
 ];
 
 export const TestimonialsSection: React.FC = () => {
-  const { t } = useLanguage();
   const [reviews, setReviews] = useState<Review[]>(SAMPLE_REVIEWS);
   const [modalOpen, setModalOpen] = useState(false);
 

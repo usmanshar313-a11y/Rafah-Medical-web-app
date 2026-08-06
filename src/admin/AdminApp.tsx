@@ -281,6 +281,30 @@ export const AdminApp: React.FC = () => {
   const [docDays, setDocDays] = useState('');
   const [docRoom, setDocRoom] = useState('');
 
+  const openAddDoctorModal = () => {
+    setEditingDoctor(null);
+    setDocName('');
+    setDocSpecialty('');
+    setDocTiming('');
+    setDocPhoto('');
+    setDocBio('');
+    setDocDays('');
+    setDocRoom('');
+    setDoctorModalOpen(true);
+  };
+
+  const openEditDoctorModal = (docItem: Doctor) => {
+    setEditingDoctor(docItem);
+    setDocName(docItem.name || '');
+    setDocSpecialty(docItem.specialty || '');
+    setDocTiming(docItem.timing || '');
+    setDocPhoto(docItem.photoURL || '');
+    setDocBio(docItem.bio || '');
+    setDocDays(Array.isArray(docItem.availableDays) ? docItem.availableDays.join(', ') : docItem.availableDays || '');
+    setDocRoom(docItem.roomNumber || '');
+    setDoctorModalOpen(true);
+  };
+
   // Appointment Manual Selection & Deletion State
   const [selectedApptIds, setSelectedApptIds] = useState<string[]>([]);
   const [deletingAppts, setDeletingAppts] = useState<boolean>(false);
@@ -1913,17 +1937,141 @@ export const AdminApp: React.FC = () => {
         )}
 
         {activeTab === 'doctors' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-4">
-            <h2 className="font-heading font-bold text-lg">Hospital Doctors Roster</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {doctors.map((d) => (
-                <div key={d.id} className="p-4 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 space-y-2">
-                  <div className="font-bold text-sm text-[#0B6B4E]">{d.name}</div>
-                  <div className="text-xs text-[#D64545] font-semibold">{d.specialty}</div>
-                  <div className="text-xs text-emerald-800">{d.timing}</div>
-                </div>
-              ))}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-900/10 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-emerald-900/10">
+              <div>
+                <h2 className="font-heading font-bold text-xl text-[#0B6B4E]">Hospital Doctors Roster</h2>
+                <p className="text-xs text-emerald-800 font-medium mt-0.5">
+                  Manage doctors, specialties, schedules, OPD rooms, and availability status
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openAddDoctorModal}
+                className="bg-[#0B6B4E] hover:bg-[#08523c] text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Doctor</span>
+              </button>
             </div>
+
+            {doctors.length === 0 ? (
+              <div className="text-center py-12 bg-[#F5F1E8]/50 rounded-2xl border border-dashed border-emerald-900/20 space-y-3">
+                <Stethoscope className="w-10 h-10 text-emerald-700/50 mx-auto" />
+                <div className="text-sm font-bold text-emerald-900">No Doctors Registered</div>
+                <p className="text-xs text-emerald-800 max-w-sm mx-auto">
+                  Get started by adding doctors to your medical roster or click "Seed Default Data" above.
+                </p>
+                <button
+                  type="button"
+                  onClick={openAddDoctorModal}
+                  className="bg-[#0B6B4E] hover:bg-[#08523c] text-white px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add First Doctor</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {doctors.map((d) => {
+                  const isAvail = d.isAvailable !== false;
+                  return (
+                    <div
+                      key={d.id}
+                      className="p-5 bg-[#F5F1E8] rounded-2xl border border-emerald-900/10 hover:border-emerald-900/20 transition-all shadow-xs flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-3.5">
+                          <img
+                            src={
+                              d.photoURL ||
+                              'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=400&q=80'
+                            }
+                            alt={d.name}
+                            className="w-14 h-14 rounded-2xl object-cover border border-emerald-900/10 shrink-0 bg-white shadow-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-bold text-sm text-[#0B6B4E] truncate">{d.name}</h3>
+                            <span className="inline-block bg-[#0B6B4E]/10 text-[#0B6B4E] text-[11px] font-bold px-2.5 py-0.5 rounded-md mt-0.5">
+                              {d.specialty}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5 text-xs text-emerald-900/80 bg-white/70 p-3 rounded-xl border border-emerald-900/5">
+                          {d.timing && (
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                              <span className="truncate">Timing: {d.timing}</span>
+                            </div>
+                          )}
+                          {d.availableDays && (
+                            <div className="flex items-center gap-2">
+                              <CalendarDays className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                              <span className="truncate">
+                                Days: {Array.isArray(d.availableDays) ? d.availableDays.join(', ') : d.availableDays}
+                              </span>
+                            </div>
+                          )}
+                          {d.roomNumber && (
+                            <div className="flex items-center gap-2">
+                              <Building2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                              <span>Room / Cabinet: {d.roomNumber}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {d.bio && (
+                          <p className="text-xs text-emerald-900/70 line-clamp-2 italic">
+                            "{d.bio}"
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-emerald-900/10 flex items-center justify-between gap-2">
+                        {/* Availability Toggle Badge */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDoctorAvailability(d.id, isAvail, d.name)}
+                          className={`text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer ${
+                            isAvail
+                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300'
+                          }`}
+                          title="Click to toggle availability status"
+                        >
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              isAvail ? 'bg-emerald-600' : 'bg-amber-600'
+                            }`}
+                          />
+                          <span>{isAvail ? 'Available' : 'On Leave'}</span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openEditDoctorModal(d)}
+                            className="bg-white hover:bg-emerald-50 text-[#0B6B4E] p-2 rounded-xl border border-emerald-900/15 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            title="Edit Doctor Info"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDoctor(d.id, d.name)}
+                            className="bg-red-50 hover:bg-red-100 text-red-600 p-2 rounded-xl border border-red-200 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                            title="Delete Doctor"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -1943,6 +2091,143 @@ export const AdminApp: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Doctor Add / Edit Modal */}
+      {doctorModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-emerald-900/10 space-y-5 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-emerald-900/10">
+              <div className="flex items-center gap-2">
+                <Stethoscope className="w-5 h-5 text-[#0B6B4E]" />
+                <h3 className="font-bold text-lg text-[#0B6B4E]">
+                  {editingDoctor ? 'Edit Doctor Profile' : 'Add New Doctor'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDoctorModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDoctor} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    Doctor Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={docName}
+                    onChange={(e) => setDocName(e.target.value)}
+                    placeholder="e.g. Dr. Muhammad Tariq Khan"
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    Specialty / Department *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={docSpecialty}
+                    onChange={(e) => setDocSpecialty(e.target.value)}
+                    placeholder="e.g. Consultant Cardiologist"
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    OPD Timing / Schedule
+                  </label>
+                  <input
+                    type="text"
+                    value={docTiming}
+                    onChange={(e) => setDocTiming(e.target.value)}
+                    placeholder="e.g. 05:00 PM - 08:00 PM"
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    Available Days
+                  </label>
+                  <input
+                    type="text"
+                    value={docDays}
+                    onChange={(e) => setDocDays(e.target.value)}
+                    placeholder="e.g. Mon, Wed, Fri"
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    OPD Room / Cabinet
+                  </label>
+                  <input
+                    type="text"
+                    value={docRoom}
+                    onChange={(e) => setDocRoom(e.target.value)}
+                    placeholder="e.g. Room 102"
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    Photo URL (Optional)
+                  </label>
+                  <input
+                    type="url"
+                    value={docPhoto}
+                    onChange={(e) => setDocPhoto(e.target.value)}
+                    placeholder="https://images.unsplash.com/..."
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-[#0B6B4E] mb-1">
+                    Bio / Qualifications / Experience
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={docBio}
+                    onChange={(e) => setDocBio(e.target.value)}
+                    placeholder="e.g. MBBS, FCPS (Cardiology), 15+ Years Experience..."
+                    className="w-full bg-[#F5F1E8] border border-emerald-900/20 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:border-[#0B6B4E]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-emerald-900/10">
+                <button
+                  type="button"
+                  onClick={() => setDoctorModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#0B6B4E] hover:bg-[#08523c] text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{editingDoctor ? 'Update Doctor' : 'Add Doctor'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
