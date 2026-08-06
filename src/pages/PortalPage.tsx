@@ -136,7 +136,10 @@ export const PortalPage: React.FC = () => {
       const fetchedAppts: Appointment[] = [];
 
       apptSnap.forEach((d) => {
-        fetchedAppts.push({ id: d.id, ...d.data() } as Appointment);
+        const apptData = { id: d.id, ...d.data() } as Appointment;
+        if (!apptData.hiddenForPatient && !apptData.patientArchived) {
+          fetchedAppts.push(apptData);
+        }
       });
 
       fetchedAppts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -346,20 +349,38 @@ export const PortalPage: React.FC = () => {
   };
 
   const handleDeleteAppointment = (apptId: string) => {
+    const targetAppt = appointments.find((a) => a.id === apptId);
+    const isCancelled = targetAppt
+      ? targetAppt.status === 'cancelled' || String(targetAppt.status).toLowerCase() === 'canceled'
+      : false;
+
     setConfirmModal({
       isOpen: true,
-      title: 'Delete Appointment',
-      message: 'Please confirm deletion of this appointment from your schedule.',
-      confirmLabel: 'Confirm Delete',
+      title: isCancelled ? 'Delete Appointment' : 'Remove Appointment',
+      message: isCancelled
+        ? 'Please confirm permanent deletion of this cancelled appointment from your schedule.'
+        : 'Please confirm removal of this appointment from your dashboard.',
+      confirmLabel: isCancelled ? 'Delete Permanently' : 'Remove',
       onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isLoading: true }));
         try {
-          await deleteDoc(doc(db, 'appointments', apptId));
+          if (isCancelled) {
+            // Permanent Delete from Firestore ONLY if appointment status is cancelled
+            await deleteDoc(doc(db, 'appointments', apptId));
+            setToast({ message: 'Cancelled appointment permanently deleted.', type: 'success' });
+          } else {
+            // Soft Delete for Patient Portal only (keep Firestore document intact for hospital records)
+            const ref = doc(db, 'appointments', apptId);
+            await updateDoc(ref, {
+              hiddenForPatient: true,
+              patientArchived: true,
+            });
+            setToast({ message: 'Appointment removed from your dashboard.', type: 'success' });
+          }
           setAppointments((prev) => prev.filter((a) => a.id !== apptId));
-          setToast({ message: 'Appointment deleted successfully.', type: 'success' });
         } catch (err) {
-          console.error('Failed to delete appointment:', err);
-          setToast({ message: 'Failed to delete appointment. Please try again.', type: 'error' });
+          console.error('Failed to remove appointment:', err);
+          setToast({ message: 'Failed to remove appointment. Please try again.', type: 'error' });
         } finally {
           setConfirmModal((prev) => ({ ...prev, isOpen: false, isLoading: false }));
         }

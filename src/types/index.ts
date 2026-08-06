@@ -35,6 +35,9 @@ export interface Appointment {
   smsError?: string;
   source: string;
   createdAt: string;
+  hiddenForPatient?: boolean;
+  patientArchived?: boolean;
+  isArchived?: boolean;
 }
 
 export interface Doctor {
